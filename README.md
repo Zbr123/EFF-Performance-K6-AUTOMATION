@@ -6,14 +6,14 @@ A single, reusable k6 project for load-testing the EFF / E3 AppSync GraphQL API.
 
 Always run from this folder (`EFF Performance K6 Framework/`) so `reports/` and `data/users.json` resolve correctly.
 
-**Option A — plain k6 command**
+**Option A — k6 command**
 
 ```powershell
 cd "EFF Performance K6 Framework"
-k6 run main.js -e SUITE=signup           -e VUS=1 -e ITERATIONS=5
-k6 run main.js -e SUITE=login            -e VUS=1 -e ITERATIONS=5
-k6 run main.js -e SUITE=delete-accounts  -e VUS=1 -e ITERATIONS=2
-k6 run main.js -e SUITE=full-lifecycle   -e VUS=1 -e ITERATIONS=3
+npx dotenv -- k6 run main.js -e SUITE=signup -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=login -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=delete-accounts -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=full-lifecycle -e VUS=100 -e ITERATIONS=200
 ```
 
 **Option B — npm shortcuts** (canned commands, see `package.json`)
