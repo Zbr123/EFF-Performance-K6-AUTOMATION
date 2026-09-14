@@ -1,0 +1,29 @@
+{
+  "name": "eff-performance-k6-framework",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Grafana k6 performance testing framework for the EFF / E3 AppSync GraphQL API.",
+  "main": "main.js",
+  "scripts": {
+    "signup": "dotenv -- k6 run main.js -e SUITE=signup",
+    "login": "dotenv -- k6 run main.js -e SUITE=login",
+    "delete": "dotenv -- k6 run main.js -e SUITE=delete-accounts",
+    "lifecycle": "dotenv -- k6 run main.js -e SUITE=full-lifecycle"
+  },
+  "devDependencies": {
+    "dotenv-cli": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "k6",
+    "performance-testing",
+    "load-testing",
+    "graphql",
+    "appsync",
+    "eff"
+  ],
+  "author": "",
+  "license": "UNLICENSED"
+}

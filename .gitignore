@@ -1,0 +1,42 @@
+# Generated k6 reports — keep the folder, ignore everything written into it
+reports/*
+!reports/.gitkeep
+
+# Local account pool written by the signup suite — keep the folder only
+data/*
+!data/.gitkeep
+
+# Environment overrides and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and k6 dumps
+*.log
+*.out
+k6-results.*
+summary.json
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Editors / IDEs
+*.swp
+*.swo
+*~
+.idea/
+*.code-workspace
+
+# Node tooling (dotenv-cli loads .env before k6 runs)
+node_modules/
+
+# Temp / cache
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.orig
