@@ -1,7 +1,7 @@
 import { check } from 'k6';
 import { categoryLabel, classifyFailure } from './errors.classifier.js';
 import { usersAllPassed, usersCompleted, usersPartialFail } from './metrics.registry.js';
-import { iterNum, safeTag } from '../utils/format.util.js';
+import { iterNum, safeTag, checkText, backendText } from '../utils/format.util.js';
 
 function emitTransportCheck(line) {
   check(null, { [line]: () => true });
@@ -15,6 +15,13 @@ export function createUserFlow(id) {
     email: id.email || '',
     username: id.username || '',
     userId: id.userId || '',
+    blitzLeagueId: '',
+    blitzLeagueName: '',
+    blitzTeamId: '',
+    blitzTeamName: '',
+    blitzInviteCode: '',
+    blitzJoinedLeagueId: '',
+    blitzLineupWeek: '',
     steps: [],
   };
 }
@@ -34,7 +41,7 @@ export function recordStep(flow, stepDef, status, respObj, skipReason) {
     const info = classifyFailure(respObj);
     category = info.category;
     code = info.code;
-    message = info.message;
+    message = backendText(respObj) || info.message;
     httpStatus = info.httpStatus;
   }
 
@@ -55,7 +62,7 @@ export function recordStep(flow, stepDef, status, respObj, skipReason) {
     `[STEP] vu=${flow.vu}|iter=${flow.iter}|email=${safeTag(flow.email, 70)}` +
     `|user=${safeTag(flow.username, 30)}|num=${step.num}|key=${step.key}` +
     `|status=${step.status}|cat=${step.category}|code=${safeTag(step.code, 40)}` +
-    `|http=${step.httpStatus}|reason=${safeTag(step.message, 120)}`;
+    `|http=${step.httpStatus}|label=${safeTag(step.label, 80)}|reason=${checkText(step.message)}`;
   emitTransportCheck(line);
 
   console.log(`[${flow.flowId}] --- STEP ${step.num}: ${step.label} -> ${step.status} ---`);
@@ -83,6 +90,13 @@ export function finalizeUserFlow(flow, steps) {
   const line =
     `[USER] vu=${flow.vu}|iter=${flow.iter}|email=${safeTag(flow.email, 70)}` +
     `|user=${safeTag(flow.username, 30)}|userId=${safeTag(flow.userId, 20)}` +
+    `|blitzLeagueId=${safeTag(flow.blitzLeagueId, 20)}` +
+    `|blitzLeagueName=${safeTag(flow.blitzLeagueName, 50)}` +
+    `|blitzTeamId=${safeTag(flow.blitzTeamId, 20)}` +
+    `|blitzTeamName=${safeTag(flow.blitzTeamName, 50)}` +
+    `|blitzInviteCode=${safeTag(flow.blitzInviteCode, 20)}` +
+    `|blitzJoinedLeagueId=${safeTag(flow.blitzJoinedLeagueId, 20)}` +
+    `|blitzLineupWeek=${safeTag(flow.blitzLineupWeek, 8)}` +
     `|pass=${passed}|fail=${failed}|skip=${skipped}|total=${total}|result=${result}`;
   emitTransportCheck(line);
 

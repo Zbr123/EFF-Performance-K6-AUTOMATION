@@ -14,6 +14,22 @@ npx dotenv -- k6 run main.js -e SUITE=signup -e VUS=100 -e ITERATIONS=200
 npx dotenv -- k6 run main.js -e SUITE=login -e VUS=100 -e ITERATIONS=200
 npx dotenv -- k6 run main.js -e SUITE=delete-accounts -e VUS=100 -e ITERATIONS=200
 npx dotenv -- k6 run main.js -e SUITE=full-lifecycle -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-create-league -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-create-team -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-owner-setup -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-join-league -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-join-league -e JOIN_HOST_EMAIL="<host-email>" -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-join-league -e JOIN_INVITE_CODE="<invite-code>" -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-create-lineup -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-create-lineup -e JOIN_HOST_EMAIL="<host-email>" -e JOIN_INVITE_CODE="<invite-code>" -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-update-lineup -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-update-lineup -e JOIN_HOST_EMAIL="<host-email>" -e JOIN_INVITE_CODE="<invite-code>" -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-get-lineup -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-get-lineup -e JOIN_HOST_EMAIL="<host-email>" -e JOIN_INVITE_CODE="<invite-code>" -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-league-details -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-league-details -e JOIN_HOST_EMAIL="<host-email>" -e JOIN_INVITE_CODE="93jdc9" -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-league-results -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-league-results -e JOIN_HOST_EMAIL="<host-email>" -e JOIN_INVITE_CODE="<invite-code>" -e VUS=100 -e ITERATIONS=200
 ```
 
 **Option B — npm shortcuts** (canned commands, see `package.json`)
@@ -23,6 +39,15 @@ npm run signup             # create 1 account
 npm run login              # login 1 pool user
 npm run delete             # login + delete 1 pool user
 npm run lifecycle          # create + delete 1 account in one iteration
+npm run blitz:league       # login + create private Blitz league (saves leagueId on the pool user)
+npm run blitz:team         # login + create owner team in that user's existing private league
+npm run blitz:owner        # login + new private league + owner team (for users without a league yet)
+npm run blitz:join         # remaining pool users join a host league, then create a team there
+npm run blitz:lineup       # owned-team lineup; pass JOIN_HOST_EMAIL + JOIN_INVITE_CODE to target a host league
+npm run blitz:update       # create lineup if needed, then fill all 9 slots from live eligible catalogs
+npm run blitz:get-lineup   # login, getBlitzTeams, getCurrentWeekBlitzLineup for the pinned league team
+npm run blitz:league-details  # login, getBlitzLeague, one standings API from setup getEFFTimeframe + league size
+npm run blitz:league-results  # login, getLeagueResultsByWeek for the current EFF week from setup timeframe
 
 npm run signup -- -e VUS=5 -e ITERATIONS=20    # pass extra args like this
 ```
@@ -33,7 +58,7 @@ The `login` and `delete-accounts` suites are `uniqueUsers: true` — `ITERATIONS
 
 ## Scenarios and suites (the important part)
 
-A **scenario** is one atomic journey (`scenarios/*.scenario.js`). A **suite** is a named list of scenarios (`config/suites.config.js`). Each k6 iteration runs the suite's scenarios as a **chain**: scenario 2 receives whatever scenario 1 produced.
+A **scenario** is one atomic journey (`scenarios/<domain>/*.scenario.js`). A **suite** is a named list of scenarios (`config/suites.config.js`). Each k6 iteration runs the suite's scenarios as a **chain**: scenario 2 receives whatever scenario 1 produced.
 
 ```
 signup ──► deleteAccounts
@@ -49,6 +74,15 @@ That is why combining features never needs a new file. The same `deleteAccounts`
 | `login` | `login` |
 | `delete-accounts` | `login` → `deleteAccounts` |
 | `full-lifecycle` | `signup` → `deleteAccounts` |
+| `blitz-create-league` | `login` → `createBlitzLeague` |
+| `blitz-create-team` | `login` → `createBlitzTeam` |
+| `blitz-owner-setup` | `login` → `createBlitzLeague` → `createBlitzTeam` |
+| `blitz-join-league` | `login` → `joinPrivateBlitzLeague` → `createBlitzTeam` |
+| `blitz-create-lineup` | `login` → `createBlitzLineup` |
+| `blitz-update-lineup` | `login` → `createBlitzLineup` → `updateBlitzLineup` |
+| `blitz-get-lineup` | `login` → `getCurrentWeekBlitzLineup` |
+| `blitz-league-details` | `login` → `getBlitzLeagueDetails` |
+| `blitz-league-results` | `login` → `getLeagueResultsByWeek` |
 
 The whole chain reports as **one** user with globally numbered steps — `full-lifecycle` shows steps 1–5, not two separate 4-step and 1-step results. If any scenario fails, the rest of the chain is skipped and every remaining step is recorded as `SKIP`.
 
@@ -59,11 +93,19 @@ The whole chain reports as **one** user with globally numbered steps — `full-l
 | `signup` | nothing (creates its own identity) | `email`, `username`, `userId`, `token` |
 | `login` | `ctx.user`, `ctx.password` | `email`, `username`, `userId`, `token` |
 | `deleteAccounts` | `token`, `email` | `deleted` |
+| `createBlitzLeague` | `token` | `blitzLeagueId`, `blitzLeagueName` |
+| `createBlitzTeam` | `token`, `blitzLeagueId` | `blitzTeamId`, `blitzTeamName` |
+| `joinPrivateBlitzLeague` | `token`, `blitzInviteCode` | `blitzLeagueId`, `blitzJoinedLeagueId` |
+| `createBlitzLineup` | `token`, owned `teamId`, or the team in the host league when email+invite are set | `blitzLineupWeek` |
+| `updateBlitzLineup` | `token`, same team, existing weekly lineup | fills QB RB1 RB2 WR1 WR2 TE K OFF DEF from live catalogs |
+| `getCurrentWeekBlitzLineup` | `token`, target league from email+invite or owned team | `getBlitzTeams` then current-week lineup |
+| `getBlitzLeagueDetails` | `token`, target `League_ID`, `getEFFTimeframe` from setup | `getBlitzLeague` then one of RegularSeason / FirstHalf / SecondHalf / Championship |
+| `getLeagueResultsByWeek` | `token`, target `League_ID`, current EFF week from setup | weekly standings for that week |
 
 ### Adding a new scenario
 
 1. Add the GraphQL wrappers under `graphql/` (suffixed `.graphql.js`).
-2. Add `scenarios/<name>.scenario.js` exporting:
+2. Add `scenarios/<domain>/<name>.scenario.js` exporting:
    - `steps` — ordered `{ key, label }` list (no numbers; `core/chain.runner.js` assigns them)
    - `run(ctx)` — returns `true` to continue the chain, `false` to stop it
 3. Register it in the `SCENARIOS` map in `main.js` (one line).
@@ -79,7 +121,7 @@ Inside `run(ctx)` you get:
 | `ctx.password` | the pool password |
 | `ctx.data` | the bag that travels down the chain — read inputs, write outputs |
 
-A future `createTeam` would read `ctx.data.token` and `ctx.data.leagueId`, then write `ctx.data.teamId` for whatever comes next.
+`createBlitzTeam` reads `ctx.data.token` and `ctx.data.blitzLeagueId`, then writes `ctx.data.blitzTeamId`.
 
 ### Adding a new combination
 
@@ -88,7 +130,7 @@ Only add a suite entry — no new files:
 ```js
 'full-blitz': {
   name: 'full-blitz',
-  scenarios: ['login', 'createLeague', 'createTeam', 'setLineup'],
+  scenarios: ['login', 'createBlitzLeague', 'createBlitzTeam', 'createBlitzLineup'],
   requirePool: true,
   uniqueUsers: true,
   writePool: false,
@@ -120,7 +162,7 @@ Copy `.env.example` to `.env` and fill it in, or pass `-e KEY=value` on the comm
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SUITE` | `login` | `signup`, `login`, `delete-accounts`, `full-lifecycle` |
+| `SUITE` | `login` | `signup`, `login`, `delete-accounts`, `full-lifecycle`, `blitz-create-league`, `blitz-create-team`, `blitz-owner-setup`, `blitz-join-league`, `blitz-create-lineup`, `blitz-update-lineup`, `blitz-get-lineup`, `blitz-league-details`, `blitz-league-results` |
 | `VUS` | `1` | concurrent virtual users |
 | `ITERATIONS` | `1` | total journeys, shared across the VUs |
 | `PASSWORD` | *(required)* | must meet the API's password rules |
@@ -129,6 +171,8 @@ Copy `.env.example` to `.env` and fill it in, or pass `-e KEY=value` on the comm
 | `REPORT_DIR` | `reports` | where the HTML/JSON output goes |
 | `EMAIL_PREFIX` | `szubair.alam` | plus-address local part used at signup |
 | `EMAIL_DOMAIN` | `toptal.com` | signup email domain |
+| `JOIN_HOST_EMAIL` | *(empty)* | join: pool host. lineup: pass with `JOIN_INVITE_CODE` to target that account's league (any email, not hardcoded) |
+| `JOIN_INVITE_CODE` | *(empty)* | join: league if host is out of pool. lineup: required with host email when that account may own multiple leagues |
 
 ---
 
@@ -137,6 +181,6 @@ Copy `.env.example` to `.env` and fill it in, or pass `-e KEY=value` on the comm
 - `reports/<suite>-report-latest.html` — open this one for a quick look
 - `reports/<suite>-report-<timestamp>.html` — a permanent copy of the same report
 - `reports/<suite>-users-<timestamp>.json` — the same data as structured JSON
-- `data/users.json` — `signup` adds users, `delete-accounts` removes them
+- `data/users.json` — `signup` adds users, `delete-accounts` removes them, `blitz-create-league` stores `blitz.leagueId`, `blitz-create-team` stores `blitz.teamId`, `blitz-join-league` stores `blitz.joinedLeagueId` / `blitz.joinedTeamId` without overwriting the user's own league, `blitz-create-lineup` stores `blitz.lineupWeek`
 
 The HTML report shows, per user, every step's PASS/FAIL/SKIP status, the failure category (validation vs 5xx vs Lambda timeout vs network), and a plain-English "likely cause" — plus separate tables for 5xx errors vs business/API errors.

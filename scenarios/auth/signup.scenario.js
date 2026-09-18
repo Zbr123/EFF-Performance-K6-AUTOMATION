@@ -1,6 +1,6 @@
-import { PASSWORD } from '../config/env.config.js';
-import { recordStep, stepPassed } from '../core/flow.tracker.js';
-import { makeIdentity } from '../utils/identity.util.js';
+import { PASSWORD } from '../../config/env.config.js';
+import { recordStep, stepPassed } from '../../core/flow.tracker.js';
+import { makeIdentity } from '../../utils/identity.util.js';
 import {
   login,
   loginOk,
@@ -10,7 +10,7 @@ import {
   signupOk,
   verifyEmail,
   verifyEmailOk,
-} from '../graphql/auth.graphql.js';
+} from '../../graphql/auth.graphql.js';
 
 export const id = 'signup';
 

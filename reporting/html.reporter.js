@@ -24,7 +24,7 @@ function parseKv(line) {
     if (idx < 0) return;
     const k = part.slice(0, idx).trim();
     const v = part.slice(idx + 1).trim();
-    out[k] = v;
+    out[k] = v === 'unknown' ? '' : v;
   });
   return out;
 }
@@ -46,6 +46,13 @@ export function parseUserFlows(data) {
         email: kv.email || '',
         username: kv.user || '',
         userId: kv.userId || '',
+        blitzLeagueId: kv.blitzLeagueId || '',
+        blitzLeagueName: kv.blitzLeagueName || '',
+        blitzTeamId: kv.blitzTeamId || '',
+        blitzTeamName: kv.blitzTeamName || '',
+        blitzInviteCode: kv.blitzInviteCode || '',
+        blitzJoinedLeagueId: kv.blitzJoinedLeagueId || '',
+        blitzLineupWeek: kv.blitzLineupWeek || '',
         passed: Number(kv.pass) || 0,
         failed: Number(kv.fail) || 0,
         skipped: Number(kv.skip) || 0,
@@ -54,7 +61,11 @@ export function parseUserFlows(data) {
         steps: [],
       });
     } else if (name.startsWith('[STEP] ')) {
-      const kv = parseKv(name.replace('[STEP] ', ''));
+      const raw = name.replace('[STEP] ', '');
+      const reasonAt = raw.indexOf('|reason=');
+      const head = reasonAt >= 0 ? raw.slice(0, reasonAt) : raw;
+      const reason = reasonAt >= 0 ? raw.slice(reasonAt + 8) : '';
+      const kv = parseKv(head);
       const key = `${kv.vu || ''}-${kv.iter || ''}-${kv.email || ''}`;
       if (!stepsByKey[key]) stepsByKey[key] = [];
       stepsByKey[key].push({
@@ -65,8 +76,8 @@ export function parseUserFlows(data) {
         categoryLabel: categoryLabel(kv.cat || 'unknown'),
         code: kv.code || '',
         httpStatus: kv.http || '',
-        message: kv.reason || '',
-        label: stepName(kv.key),
+        message: reason,
+        label: kv.label || stepName(kv.key),
       });
     }
   });
@@ -97,6 +108,7 @@ function parseErrorChecks(data, kindPrefix) {
     const endpoint = (parts[0] || '').replace(kindPrefix, '').trim();
     const status = (parts.find((p) => p.startsWith('status=')) || 'status=n/a').replace('status=', '');
     const code = (parts.find((p) => p.startsWith('code=')) || 'code=n/a').replace('code=', '');
+    if (SUITE === 'blitz-update-lineup' && code === 'LINEUP_ALREADY_EXISTS') return;
     const vu = Number((parts.find((p) => p.startsWith('VU=')) || 'VU=').replace('VU=', '')) || null;
     const iter = Number((parts.find((p) => p.startsWith('iter=')) || 'iter=').replace('iter=', '')) || null;
     const message = parts.slice(5).join(' | ') || '';
@@ -202,6 +214,7 @@ function sharedCss(sr) {
   td{padding:8px 10px;font-size:13px;border-bottom:1px solid #f1f5f9}
   tr:last-child td{border-bottom:none}
   tbody tr:hover td{background:#fafafa}
+  .msg-cell{white-space:pre-wrap;word-break:break-word;max-width:640px;font-family:Consolas,monospace;font-size:11px;line-height:1.45;color:#4b5563}
 </style>`;
 }
 
@@ -238,12 +251,14 @@ function buildUserReportHtml(users, errorsData) {
       <td style="font-family:Consolas,monospace;font-size:11px;">${esc(u.email)}</td>
       <td style="font-size:12px;color:#6b7280;">${esc(u.username)}</td>
       <td>${esc(u.userId || '-')}</td>
+      <td style="font-family:Consolas,monospace;font-size:11px;">${esc(u.blitzLeagueId || '-')}</td>
+      <td style="font-family:Consolas,monospace;font-size:11px;">${esc(u.blitzTeamId || '-')}</td>
       <td style="color:#166534;font-weight:700;">${u.passed}</td>
       <td style="color:#991b1b;font-weight:700;">${u.failed}</td>
       <td style="color:#6b7280;">${u.skipped}</td>
       <td>${resultBadge(u.result)}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="9" style="padding:14px;color:#6b7280;text-align:center;">No users captured</td></tr>';
+    }).join('') || '<tr><td colspan="11" style="padding:14px;color:#6b7280;text-align:center;">No users captured</td></tr>';
 
   const perUserBlocks = users.map((u) => {
     const isPass    = u.result === 'ALL_PASS';
@@ -258,7 +273,7 @@ function buildUserReportHtml(users, errorsData) {
         <td style="color:#6b7280;font-size:12px;">${esc(s.categoryLabel)}</td>
         <td style="font-family:Consolas,monospace;font-size:11px;">${esc(s.code || '-')}</td>
         <td style="font-weight:600;">${esc(s.httpStatus || '-')}</td>
-        <td style="font-size:12px;color:#4b5563;">${esc(s.message || '-')}</td>
+        <td class="msg-cell">${esc(s.message || '-')}</td>
         <td style="font-size:12px;color:#6b7280;">${esc(cause)}</td>
       </tr>`;
     }).join('') || '<tr><td colspan="7" style="padding:10px;color:#6b7280;">No step details</td></tr>';
@@ -271,6 +286,9 @@ function buildUserReportHtml(users, errorsData) {
         <span style="color:#6b7280;">iter ${esc(u.iter)}</span>
         <span style="color:#6b7280;">·</span>
         <span style="font-family:Consolas,monospace;font-size:11px;color:#374151;">${esc(u.email)}</span>
+        ${u.blitzLeagueId ? `<span style="color:#6b7280;">· league ${esc(u.blitzLeagueId)}</span>` : ''}
+        ${u.blitzTeamId ? `<span style="color:#6b7280;">· team ${esc(u.blitzTeamId)}</span>` : ''}
+        ${u.blitzLineupWeek ? `<span style="color:#6b7280;">· week ${esc(u.blitzLineupWeek)}</span>` : ''}
         <span style="margin-left:auto;">${resultBadge(u.result)}</span>
       </div>
       <table>
@@ -290,7 +308,7 @@ function buildUserReportHtml(users, errorsData) {
         <td style="font-family:Consolas,monospace;font-size:11px;">${esc(r.error_code)}</td>
         <td style="font-weight:700;">${esc(r.count)}</td>
         <td style="color:#6b7280;font-size:12px;">VU ${esc(r.vu)} / iter ${esc(r.iter)}</td>
-        <td style="font-size:12px;color:#4b5563;">${esc(r.message)}</td>
+        <td class="msg-cell">${esc(r.message)}</td>
         <td style="font-size:12px;color:#6b7280;">${esc(r.cause)}</td>
       </tr>`).join('')
     : '<tr><td colspan="7" style="padding:14px;color:#6b7280;text-align:center;">No errors recorded</td></tr>';
@@ -387,7 +405,7 @@ ${sharedCss(sr)}
       <table>
         <thead><tr>
           <th>VU</th><th>Iteration</th><th>Email</th><th>Username</th>
-          <th>User ID</th><th>Pass</th><th>Fail</th><th>Skip</th><th>Result</th>
+          <th>User ID</th><th>League ID</th><th>Team ID</th><th>Pass</th><th>Fail</th><th>Skip</th><th>Result</th>
         </tr></thead>
         <tbody>${summaryRows}</tbody>
       </table>
@@ -453,7 +471,7 @@ export function handleSummary(data, suite) {
     stdout: textSummary(data, { indent: ' ', enableColors: true }),
   };
 
-  if (suite && suite.writePool) {
+  if (suite && suite.writePool && users.length > 0) {
     const updated = suite.removeFromPool
       ? removeFromPool(INIT_POOL.users, users, INIT_POOL.password || PASSWORD)
       : mergePool(INIT_POOL.users, users, INIT_POOL.password || PASSWORD);

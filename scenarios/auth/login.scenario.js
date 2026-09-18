@@ -1,5 +1,5 @@
-import { recordStep, stepPassed } from '../core/flow.tracker.js';
-import { login, loginOk } from '../graphql/auth.graphql.js';
+import { recordStep, stepPassed } from '../../core/flow.tracker.js';
+import { login, loginOk } from '../../graphql/auth.graphql.js';
 
 export const id = 'login';
 
