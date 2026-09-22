@@ -1,7 +1,8 @@
-import { recordStep, stepPassed } from '../../core/flow.tracker.js';
+import { recordBusinessRule, recordStep, stepPassed } from '../../core/flow.tracker.js';
 import {
   getLeagueResultsByWeek,
   getLeagueResultsByWeekOk,
+  isPreseasonTimeframe,
   pickLeagueResultsWeek,
 } from '../../graphql/blitz.graphql.js';
 
@@ -28,13 +29,23 @@ export function run(ctx) {
     );
   }
 
-  const week = pickLeagueResultsWeek({
+  const timeframe = {
     seasonType: ctx.data.effSeasonType,
     week: ctx.data.effWeek,
     seasonPhase: ctx.data.effSeasonPhase,
-  });
+  };
+  const week = pickLeagueResultsWeek(timeframe);
 
   if (week == null) {
+    if (isPreseasonTimeframe(timeframe)) {
+      recordBusinessRule(
+        flow,
+        planned,
+        'PRESEASON_NO_RESULTS',
+        `Preseason has no matches; weekly results unavailable (SeasonType=${ctx.data.effSeasonType || '-'} Week=${ctx.data.effWeek || '-'} phase=${ctx.data.effSeasonPhase || '-'})`
+      );
+      return true;
+    }
     recordStep(
       flow,
       planned,

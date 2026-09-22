@@ -1,10 +1,14 @@
 import { recordStep, stepPassed } from '../../core/flow.tracker.js';
+import { isTransientWriteFail, recordExtraStep, markFailRecovered } from '../../core/write.recover.js';
 import { randomString } from '../../utils/random.util.js';
 import {
   checkBlitzLeagueName,
   checkBlitzLeagueNameOk,
   createBlitzLeague,
   createBlitzLeagueOk,
+  findBlitzLeagueByName,
+  getBlitzLeagues,
+  getBlitzLeaguesOk,
 } from '../../graphql/blitz.graphql.js';
 
 export const id = 'createBlitzLeague';
@@ -39,11 +43,27 @@ export function run(ctx) {
   const createResp = createBlitzLeague(leagueName, token, flow.flowId);
   const okCreate = stepPassed(createResp, createBlitzLeagueOk(createResp));
   if (okCreate) {
-    const leagueId = String(createResp.body.createBlitzLeague.League_ID);
-    ctx.data.blitzLeagueId = leagueId;
+    ctx.data.blitzLeagueId = String(createResp.body.createBlitzLeague.League_ID);
     ctx.data.blitzLeagueName = leagueName;
+    recordStep(flow, ctx.step('createBlitzLeague'), 'PASS', createResp);
+    return true;
   }
-  recordStep(flow, ctx.step('createBlitzLeague'), okCreate ? 'PASS' : 'FAIL', createResp);
+  recordStep(flow, ctx.step('createBlitzLeague'), 'FAIL', createResp);
+  if (!isTransientWriteFail(createResp)) return false;
 
-  return okCreate;
+  const listResp = getBlitzLeagues(token, flow.flowId);
+  const found = findBlitzLeagueByName(listResp, leagueName);
+  const verified = stepPassed(listResp, getBlitzLeaguesOk(listResp) && !!(found && found._id));
+  recordExtraStep(
+    flow,
+    'getBlitzLeagues',
+    verified ? 'PASS' : 'FAIL',
+    listResp,
+    verified ? '' : `league not found in getBlitzLeagues: ${leagueName}`
+  );
+  if (!verified) return false;
+  ctx.data.blitzLeagueId = String(found._id);
+  ctx.data.blitzLeagueName = leagueName;
+  markFailRecovered(flow, ctx.step('createBlitzLeague').key);
+  return true;
 }

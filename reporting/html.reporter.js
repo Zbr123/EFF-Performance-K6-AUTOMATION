@@ -1,5 +1,6 @@
 import { categoryLabel, explainErrorCause } from '../core/errors.classifier.js';
 import { PASSWORD, REPORT_DIR, SUITE, TOTAL_ITERATIONS, VUS } from '../config/env.config.js';
+import { suiteHasScenario, suiteReportGroup, suiteReportLeaf } from '../config/suites.config.js';
 import { INIT_POOL, mergePool, removeFromPool, RESOLVED_POOL_PATH } from '../pool/user.pool.js';
 import { textSummary } from './text.reporter.js';
 
@@ -56,6 +57,7 @@ export function parseUserFlows(data) {
         passed: Number(kv.pass) || 0,
         failed: Number(kv.fail) || 0,
         skipped: Number(kv.skip) || 0,
+        recovered: Number(kv.recovered) || 0,
         total: Number(kv.total) || 0,
         result: kv.result || 'UNKNOWN',
         steps: [],
@@ -108,7 +110,8 @@ function parseErrorChecks(data, kindPrefix) {
     const endpoint = (parts[0] || '').replace(kindPrefix, '').trim();
     const status = (parts.find((p) => p.startsWith('status=')) || 'status=n/a').replace('status=', '');
     const code = (parts.find((p) => p.startsWith('code=')) || 'code=n/a').replace('code=', '');
-    if (SUITE === 'blitz-update-lineup' && code === 'LINEUP_ALREADY_EXISTS') return;
+    if (suiteHasScenario(SUITE, 'updateBlitzLineup') && code === 'LINEUP_ALREADY_EXISTS') return;
+    if (suiteHasScenario(SUITE, 'joinPublicBlitzLeague') && code === 'LEAGUE_MEMBERSHIP_ALREADY_EXISTS') return;
     const vu = Number((parts.find((p) => p.startsWith('VU=')) || 'VU=').replace('VU=', '')) || null;
     const iter = Number((parts.find((p) => p.startsWith('iter=')) || 'iter=').replace('iter=', '')) || null;
     const message = parts.slice(5).join(' | ') || '';
@@ -446,10 +449,10 @@ function switchTab(btn, name) {
 
 export function handleSummary(data, suite) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const htmlPath    = `${REPORT_DIR}/${SUITE}-report-${stamp}.html`;
-  const jsonPath    = `${REPORT_DIR}/${SUITE}-report-${stamp}.json`;
-  const latestPath  = `${REPORT_DIR}/${SUITE}-report-latest.html`;
-  const usersJsonPath = `${REPORT_DIR}/${SUITE}-users-${stamp}.json`;
+  const dir = `${REPORT_DIR}/${suiteReportGroup(suite)}`;
+  const leaf = suiteReportLeaf(suite);
+  const htmlPath = `${dir}/${leaf}-${stamp}.html`;
+  const latestPath = `${dir}/${leaf}-latest.html`;
 
   const users = parseUserFlows(data);
 
@@ -461,13 +464,8 @@ export function handleSummary(data, suite) {
   const mergedHtml = buildUserReportHtml(users, errorsData);
 
   const files = {
-    [htmlPath]:      mergedHtml,
-    [latestPath]:    mergedHtml,
-    [jsonPath]:      JSON.stringify(data, null, 2),
-    [usersJsonPath]: JSON.stringify({
-      generatedAt: new Date().toISOString(),
-      suite: SUITE, vus: VUS, iterations: TOTAL_ITERATIONS, users,
-    }, null, 2),
+    [htmlPath]: mergedHtml,
+    [latestPath]: mergedHtml,
     stdout: textSummary(data, { indent: ' ', enableColors: true }),
   };
 
@@ -481,8 +479,7 @@ export function handleSummary(data, suite) {
   }
 
   console.log(`\nHTML report: ${htmlPath}`);
-  console.log(`HTML report (latest): ${latestPath}`);
-  console.log(`Users JSON: ${usersJsonPath}\n`);
+  console.log(`HTML report (latest): ${latestPath}\n`);
 
   return files;
 }

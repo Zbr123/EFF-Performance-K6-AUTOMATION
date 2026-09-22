@@ -85,6 +85,7 @@ function seedData(user, seed) {
     blitzLineupWeek: seed.timeframe && seed.timeframe.week ? String(seed.timeframe.week) : (blitz.lineupWeek || ''),
     blitzLineupLeagueId: targetLeague,
     blitzLeagueMembers: '',
+    blitzForceLargeLeagueDetails: !!seed.forceLargeLeagueDetails,
     effSeasonType: seed.timeframe ? String(seed.timeframe.seasonType || '') : '',
     effWeek: seed.timeframe ? String(seed.timeframe.week || '') : '',
     effSeasonPhase: seed.timeframe ? String(seed.timeframe.seasonPhase || '') : '',

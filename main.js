@@ -1,6 +1,6 @@
 import exec from 'k6/execution';
 import { SUITE, TOTAL_ITERATIONS, VUS } from './config/env.config.js';
-import { loadPool, pickUser, resolveJoinHost, resolveLineupLeague } from './pool/user.pool.js';
+import { loadPool, pickUser, resolveJoinHost, resolveLineupLeague, resolvePublicBlitzJoin, resolvePublicBlitzLineup } from './pool/user.pool.js';
 import { getSuite } from './config/suites.config.js';
 import { buildPlan, runChain } from './core/chain.runner.js';
 import { handleSummary as writeSummary } from './reporting/html.reporter.js';
@@ -11,6 +11,7 @@ import * as createBlitzLeagueScenario from './scenarios/blitz/createLeague.scena
 import * as createBlitzLineupScenario from './scenarios/blitz/createLineup.scenario.js';
 import * as createBlitzTeamScenario from './scenarios/blitz/createTeam.scenario.js';
 import * as joinPrivateBlitzLeagueScenario from './scenarios/blitz/joinLeague.scenario.js';
+import * as joinPublicBlitzLeagueScenario from './scenarios/blitz/joinPublicLeague.scenario.js';
 import * as getBlitzLeagueDetailsScenario from './scenarios/blitz/getLeagueDetails.scenario.js';
 import * as getCurrentWeekBlitzLineupScenario from './scenarios/blitz/getCurrentWeekLineup.scenario.js';
 import * as getLeagueResultsByWeekScenario from './scenarios/blitz/getLeagueResults.scenario.js';
@@ -27,6 +28,7 @@ const SCENARIOS = {
   createBlitzLeague: createBlitzLeagueScenario,
   createBlitzTeam: createBlitzTeamScenario,
   joinPrivateBlitzLeague: joinPrivateBlitzLeagueScenario,
+  joinPublicBlitzLeague: joinPublicBlitzLeagueScenario,
   createBlitzLineup: createBlitzLineupScenario,
   updateBlitzLineup: updateBlitzLineupScenario,
   getCurrentWeekBlitzLineup: getCurrentWeekBlitzLineupScenario,
@@ -86,6 +88,7 @@ export function setup() {
   let users = cloneUsers(pool.users);
   let inviteCode = '';
   let lineupLeagueId = '';
+  let publicLeagueId = '';
 
   if (suite.requirePool && users.length === 0) {
     exec.test.abort(
@@ -106,6 +109,26 @@ export function setup() {
     }
   }
 
+  if (suite.requirePublicJoin) {
+    const resolved = resolvePublicBlitzJoin(users, pool.password);
+    users = resolved.users;
+    publicLeagueId = resolved.leagueId;
+    if (users.length === 0) {
+      exec.test.abort(
+        `SUITE=${suite.name} has no eligible joiners for public league ${publicLeagueId || '(unknown)'}. ` +
+        `Users already have a team there, or the pool is empty. Run signup first: ` +
+        `k6 run main.js -e SUITE=signup -e ITERATIONS=${TOTAL_ITERATIONS}`
+      );
+    }
+  }
+
+  if (suite.requirePublicLineup) {
+    const resolved = resolvePublicBlitzLineup(users, pool.password);
+    users = resolved.users;
+    lineupLeagueId = resolved.leagueId;
+    publicLeagueId = resolved.leagueId;
+  }
+
   if (suite.requireLineupLeague) {
     const resolved = resolveLineupLeague(users, pool.password);
     users = resolved.users;
@@ -114,6 +137,18 @@ export function setup() {
   }
 
   if (suite.requirePool && suite.uniqueUsers && users.length < TOTAL_ITERATIONS) {
+    if (suite.requirePublicJoin && publicLeagueId) {
+      exec.test.abort(
+        `SUITE=${suite.name} needs ${TOTAL_ITERATIONS} pool users without a team in public league ${publicLeagueId}, found ${users.length}. ` +
+        `Lower ITERATIONS, or signup more users.`
+      );
+    }
+    if (suite.requirePublicLineup && publicLeagueId) {
+      exec.test.abort(
+        `SUITE=${suite.name} needs ${TOTAL_ITERATIONS} pool users with a team in public league ${publicLeagueId}, found ${users.length}. ` +
+        `Lower ITERATIONS, or run first: k6 run main.js -e SUITE=blitz-join-public-league`
+      );
+    }
     if (suite.requireLineupLeague && lineupLeagueId) {
       exec.test.abort(
         `SUITE=${suite.name} needs ${TOTAL_ITERATIONS} users with a team in league ${lineupLeagueId}, found ${users.length}. ` +
@@ -170,6 +205,7 @@ export function setup() {
     inviteCode: inviteCode,
     lineupLeagueId: lineupLeagueId,
     timeframe: timeframe,
+    forceLargeLeagueDetails: !!suite.forceLargeLeagueDetails,
   };
 }
 
@@ -190,6 +226,7 @@ export default function (data) {
     inviteCode: data.inviteCode || '',
     lineupLeagueId: data.lineupLeagueId || '',
     timeframe: data.timeframe || null,
+    forceLargeLeagueDetails: !!data.forceLargeLeagueDetails,
   });
 }
 

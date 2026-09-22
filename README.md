@@ -20,6 +20,9 @@ npx dotenv -- k6 run main.js -e SUITE=blitz-owner-setup -e VUS=100 -e ITERATIONS
 npx dotenv -- k6 run main.js -e SUITE=blitz-join-league -e VUS=100 -e ITERATIONS=200
 npx dotenv -- k6 run main.js -e SUITE=blitz-join-league -e JOIN_HOST_EMAIL="<host-email>" -e VUS=100 -e ITERATIONS=200
 npx dotenv -- k6 run main.js -e SUITE=blitz-join-league -e JOIN_INVITE_CODE="<invite-code>" -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-join-public-league -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-public-lineup -e VUS=100 -e ITERATIONS=200
+npx dotenv -- k6 run main.js -e SUITE=blitz-public-standings -e VUS=100 -e ITERATIONS=200
 npx dotenv -- k6 run main.js -e SUITE=blitz-create-lineup -e VUS=100 -e ITERATIONS=200
 npx dotenv -- k6 run main.js -e SUITE=blitz-create-lineup -e JOIN_HOST_EMAIL="<host-email>" -e JOIN_INVITE_CODE="<invite-code>" -e VUS=100 -e ITERATIONS=200
 npx dotenv -- k6 run main.js -e SUITE=blitz-update-lineup -e VUS=100 -e ITERATIONS=200
@@ -43,6 +46,9 @@ npm run blitz:league       # login + create private Blitz league (saves leagueId
 npm run blitz:team         # login + create owner team in that user's existing private league
 npm run blitz:owner        # login + new private league + owner team (for users without a league yet)
 npm run blitz:join         # remaining pool users join a host league, then create a team there
+npm run blitz:join-public  # pool users join the public Extreme Blitz league, then create a team there
+npm run blitz:public-lineup  # those public-league teams: createBlitzLineup, then update all 9 slots
+npm run blitz:public-standings  # public league: details (FirstHalf/SecondHalf/Championship) then getLeagueResultsByWeek
 npm run blitz:lineup       # owned-team lineup; pass JOIN_HOST_EMAIL + JOIN_INVITE_CODE to target a host league
 npm run blitz:update       # create lineup if needed, then fill all 9 slots from live eligible catalogs
 npm run blitz:get-lineup   # login, getBlitzTeams, getCurrentWeekBlitzLineup for the pinned league team
@@ -78,6 +84,9 @@ That is why combining features never needs a new file. The same `deleteAccounts`
 | `blitz-create-team` | `login` → `createBlitzTeam` |
 | `blitz-owner-setup` | `login` → `createBlitzLeague` → `createBlitzTeam` |
 | `blitz-join-league` | `login` → `joinPrivateBlitzLeague` → `createBlitzTeam` |
+| `blitz-join-public-league` | `login` → `joinPublicBlitzLeague` → `createBlitzTeam` |
+| `blitz-public-lineup` | `login` → `createBlitzLineup` → `updateBlitzLineup` (public Extreme league team) |
+| `blitz-public-standings` | `login` → `getBlitzLeagueDetails` → `getLeagueResultsByWeek` (public Extreme; FirstHalf/SecondHalf/Championship only) |
 | `blitz-create-lineup` | `login` → `createBlitzLineup` |
 | `blitz-update-lineup` | `login` → `createBlitzLineup` → `updateBlitzLineup` |
 | `blitz-get-lineup` | `login` → `getCurrentWeekBlitzLineup` |
@@ -96,10 +105,11 @@ The whole chain reports as **one** user with globally numbered steps — `full-l
 | `createBlitzLeague` | `token` | `blitzLeagueId`, `blitzLeagueName` |
 | `createBlitzTeam` | `token`, `blitzLeagueId` | `blitzTeamId`, `blitzTeamName` |
 | `joinPrivateBlitzLeague` | `token`, `blitzInviteCode` | `blitzLeagueId`, `blitzJoinedLeagueId` |
-| `createBlitzLineup` | `token`, owned `teamId`, or the team in the host league when email+invite are set | `blitzLineupWeek` |
+| `joinPublicBlitzLeague` | `token`, public Extreme league from `getPublicBlitzLeagues` | `getPublicBlitzLeagues` then join; `blitzLeagueId`, `blitzJoinedLeagueId` |
+| `createBlitzLineup` | `token`, owned `teamId`, host-league team when email+invite are set, or public Extreme joined team | `blitzLineupWeek` |
 | `updateBlitzLineup` | `token`, same team, existing weekly lineup | fills QB RB1 RB2 WR1 WR2 TE K OFF DEF from live catalogs |
 | `getCurrentWeekBlitzLineup` | `token`, target league from email+invite or owned team | `getBlitzTeams` then current-week lineup |
-| `getBlitzLeagueDetails` | `token`, target `League_ID`, `getEFFTimeframe` from setup | `getBlitzLeague` then one of RegularSeason / FirstHalf / SecondHalf / Championship |
+| `getBlitzLeagueDetails` | `token`, target `League_ID`, `getEFFTimeframe` from setup | `getBlitzLeague` then one of RegularSeason (≤3 members) or FirstHalf / SecondHalf / Championship (4+ / public) |
 | `getLeagueResultsByWeek` | `token`, target `League_ID`, current EFF week from setup | weekly standings for that week |
 
 ### Adding a new scenario
@@ -162,13 +172,13 @@ Copy `.env.example` to `.env` and fill it in, or pass `-e KEY=value` on the comm
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SUITE` | `login` | `signup`, `login`, `delete-accounts`, `full-lifecycle`, `blitz-create-league`, `blitz-create-team`, `blitz-owner-setup`, `blitz-join-league`, `blitz-create-lineup`, `blitz-update-lineup`, `blitz-get-lineup`, `blitz-league-details`, `blitz-league-results` |
+| `SUITE` | `login` | `signup`, `login`, `delete-accounts`, `full-lifecycle`, `blitz-create-league`, `blitz-create-team`, `blitz-owner-setup`, `blitz-join-league`, `blitz-join-public-league`, `blitz-public-lineup`, `blitz-public-standings`, `blitz-create-lineup`, `blitz-update-lineup`, `blitz-get-lineup`, `blitz-league-details`, `blitz-league-results` |
 | `VUS` | `1` | concurrent virtual users |
 | `ITERATIONS` | `1` | total journeys, shared across the VUs |
 | `PASSWORD` | *(required)* | must meet the API's password rules |
 | `GRAPHQL_URL` | *(required)* | test AppSync endpoint |
 | `API_KEY` | *(required)* | test API key |
-| `REPORT_DIR` | `reports` | where the HTML/JSON output goes |
+| `REPORT_DIR` | `reports` | root for HTML reports (`reports/auth`, `reports/blitz`, `reports/exchange`) |
 | `EMAIL_PREFIX` | `szubair.alam` | plus-address local part used at signup |
 | `EMAIL_DOMAIN` | `toptal.com` | signup email domain |
 | `JOIN_HOST_EMAIL` | *(empty)* | join: pool host. lineup: pass with `JOIN_INVITE_CODE` to target that account's league (any email, not hardcoded) |
@@ -178,9 +188,15 @@ Copy `.env.example` to `.env` and fill it in, or pass `-e KEY=value` on the comm
 
 ## Reports (written after every run)
 
-- `reports/<suite>-report-latest.html` — open this one for a quick look
-- `reports/<suite>-report-<timestamp>.html` — a permanent copy of the same report
-- `reports/<suite>-users-<timestamp>.json` — the same data as structured JSON
-- `data/users.json` — `signup` adds users, `delete-accounts` removes them, `blitz-create-league` stores `blitz.leagueId`, `blitz-create-team` stores `blitz.teamId`, `blitz-join-league` stores `blitz.joinedLeagueId` / `blitz.joinedTeamId` without overwriting the user's own league, `blitz-create-lineup` stores `blitz.lineupWeek`
+Reports land under `reports/<domain>/`. JSON dumps are not written — the HTML already has the full user/step/error view.
+
+| Path | Meaning |
+|---|---|
+| `reports/auth/<suite>-latest.html` | last auth run (signup, login, delete-accounts, full-lifecycle) |
+| `reports/blitz/<suite>-latest.html` | last Blitz run (`create-league`, `public-lineup`, …) |
+| `reports/exchange/<suite>-latest.html` | reserved for Exchange suites |
+| `reports/<domain>/<suite>-<timestamp>.html` | dated copy of the same report |
+
+`data/users.json` is the account pool, not a report — `signup` adds users, `delete-accounts` removes them, `blitz-create-league` stores `blitz.leagueId`, `blitz-create-team` stores `blitz.teamId`, `blitz-join-league` and `blitz-join-public-league` store `blitz.joinedLeagueId` / `blitz.joinedTeamId` without overwriting the user's own league, `blitz-create-lineup` / `blitz-public-lineup` store `blitz.lineupWeek`.
 
 The HTML report shows, per user, every step's PASS/FAIL/SKIP status, the failure category (validation vs 5xx vs Lambda timeout vs network), and a plain-English "likely cause" — plus separate tables for 5xx errors vs business/API errors.

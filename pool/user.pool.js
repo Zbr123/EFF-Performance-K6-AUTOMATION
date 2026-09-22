@@ -2,7 +2,13 @@ import { SharedArray } from 'k6/data';
 import exec from 'k6/execution';
 import { JOIN_HOST_EMAIL, JOIN_INVITE_CODE, PASSWORD } from '../config/env.config.js';
 import { login, loginOk } from '../graphql/auth.graphql.js';
-import { fetchBlitzInviteCode, findBlitzLeagueByOwnerAndInvite } from '../graphql/blitz.graphql.js';
+import {
+  fetchBlitzInviteCode,
+  findBlitzLeagueByOwnerAndInvite,
+  getPublicBlitzLeagues,
+  getPublicBlitzLeaguesOk,
+  pickPublicBlitzLeague,
+} from '../graphql/blitz.graphql.js';
 
 let rawPoolFile = '';
 try {
@@ -141,6 +147,64 @@ export function resolveJoinHost(users, password) {
   );
 
   return { inviteCode, users: joiners };
+}
+
+function discoverPublicExtremeLeague(users, password, emptyPoolMsg) {
+  if (!users || !users.length) {
+    exec.test.abort(emptyPoolMsg);
+  }
+  const loginResp = login(users[0].email, password, 'setup');
+  if (!loginOk(loginResp)) {
+    exec.test.abort(`setup() login failed for ${users[0].email}; cannot read getPublicBlitzLeagues.`);
+  }
+  const listResp = getPublicBlitzLeagues(loginResp.body.login.accessToken, 'setup');
+  if (!getPublicBlitzLeaguesOk(listResp)) {
+    exec.test.abort('setup() getPublicBlitzLeagues failed. Cannot pick a public Extreme League_ID.');
+  }
+  const picked = pickPublicBlitzLeague(listResp.body.getPublicBlitzLeagues.leagues);
+  if (!picked || !picked._id) {
+    exec.test.abort('setup() found no public Extreme Blitz league (Game_Type EXTREME, Game_Week 0).');
+  }
+  return {
+    leagueId: String(picked._id),
+    leagueName: picked.League_Name ? String(picked.League_Name) : '',
+  };
+}
+
+export function resolvePublicBlitzJoin(users, password) {
+  const picked = discoverPublicExtremeLeague(
+    users,
+    password,
+    'SUITE needs pool users to discover a public Blitz league. Run first: k6 run main.js -e SUITE=signup'
+  );
+  const joiners = users.filter((u) => !teamInLeague(u, picked.leagueId));
+  console.log(
+    `Public join leagueId=${picked.leagueId}` +
+    (picked.leagueName ? ` name=${picked.leagueName}` : '') +
+    ` joiners=${joiners.length}`
+  );
+  return { leagueId: picked.leagueId, users: joiners };
+}
+
+export function resolvePublicBlitzLineup(users, password) {
+  const picked = discoverPublicExtremeLeague(
+    users,
+    password,
+    'SUITE needs pool users who already joined the public Blitz league. Run first: k6 run main.js -e SUITE=blitz-join-public-league'
+  );
+  const members = users.filter((u) => teamInLeague(u, picked.leagueId));
+  if (members.length === 0) {
+    exec.test.abort(
+      `No pool user has a team in public league ${picked.leagueId}. ` +
+      'Run first: k6 run main.js -e SUITE=blitz-join-public-league'
+    );
+  }
+  console.log(
+    `Public lineup leagueId=${picked.leagueId}` +
+    (picked.leagueName ? ` name=${picked.leagueName}` : '') +
+    ` members=${members.length}`
+  );
+  return { leagueId: picked.leagueId, users: members };
 }
 
 function teamInLeague(user, leagueId) {
@@ -307,6 +371,24 @@ function mergeBlitz(prevBlitz, u) {
   };
 }
 
+function passedStep(u, key) {
+  const steps = u && u.steps ? u.steps : [];
+  for (let i = 0; i < steps.length; i++) {
+    if (steps[i] && steps[i].key === key && steps[i].status === 'PASS') return true;
+  }
+  return false;
+}
+
+function poolEligible(u) {
+  if (!u || !u.email) return false;
+  if (u.result === 'ALL_PASS') return true;
+  return (
+    passedStep(u, 'signup.signUp') &&
+    passedStep(u, 'signup.setPassword') &&
+    passedStep(u, 'signup.verifyEmail')
+  );
+}
+
 function stampHostInvite(byEmail, newUsers) {
   (newUsers || []).forEach((u) => {
     if (!u || u.result !== 'ALL_PASS' || !u.blitzJoinedLeagueId || !u.blitzInviteCode) return;
@@ -326,7 +408,7 @@ export function mergePool(existing, newUsers, password) {
     if (u && u.email) byEmail[String(u.email).toLowerCase()] = Object.assign({}, u);
   });
   (newUsers || []).forEach((u) => {
-    if (!u || !u.email || u.result !== 'ALL_PASS') return;
+    if (!poolEligible(u)) return;
     const key = String(u.email).toLowerCase();
     const prev = byEmail[key] || {};
     const prevExchange = prev.exchange || {};

@@ -1,7 +1,8 @@
-import { recordStep, stepPassed } from '../../core/flow.tracker.js';
+import { recordBusinessRule, recordStep, stepPassed } from '../../core/flow.tracker.js';
 import {
   getBlitzLeague,
   getBlitzLeagueOk,
+  isPreseasonTimeframe,
   pickBlitzLeague,
   pickBlitzLeagueDetailsView,
 } from '../../graphql/blitz.graphql.js';
@@ -47,16 +48,27 @@ export function run(ctx) {
   );
 
   const planned = ctx.step('getBlitzLeagueDetails');
+  const timeframe = {
+    seasonType: ctx.data.effSeasonType,
+    week: ctx.data.effWeek,
+    seasonPhase: ctx.data.effSeasonPhase,
+  };
   const view = pickBlitzLeagueDetailsView(
-    {
-      seasonType: ctx.data.effSeasonType,
-      week: ctx.data.effWeek,
-      seasonPhase: ctx.data.effSeasonPhase,
-    },
-    ctx.data.blitzLeagueMembers
+    timeframe,
+    ctx.data.blitzLeagueMembers,
+    { forceLarge: !!ctx.data.blitzForceLargeLeagueDetails }
   );
 
   if (!view) {
+    if (isPreseasonTimeframe(timeframe)) {
+      recordBusinessRule(
+        flow,
+        planned,
+        'PRESEASON_NO_STANDINGS',
+        `Preseason has no matches; standings unavailable (SeasonType=${ctx.data.effSeasonType || '-'} Week=${ctx.data.effWeek || '-'} phase=${ctx.data.effSeasonPhase || '-'})`
+      );
+      return true;
+    }
     recordStep(
       flow,
       planned,

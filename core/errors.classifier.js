@@ -1,6 +1,7 @@
 const CATEGORY_LABELS = {
   ok: 'OK',
   validation: 'Backend validation',
+  business_rule: 'Business rule',
   server_error: 'Server error (5xx)',
   lambda_fail: 'Lambda fail / timeout',
   network_error: 'Network error',
@@ -51,6 +52,8 @@ export function classifyFailure(respObj) {
 export function explainErrorCause(errorCode, message) {
   const code = String(errorCode || '');
   const msg = String(message || '');
+  if (code === 'PRESEASON_NO_STANDINGS') return 'Preseason has no matches, so league standings views are not available.';
+  if (code === 'PRESEASON_NO_RESULTS') return 'Preseason has no matches, so weekly league results are not available.';
   if (code === 'EMAIL_ALREADY_EXISTS') return 'Email is already registered (verified account). Use a new plus-address or the login suite.';
   if (code === 'USERNAME_TAKEN') return 'Username collided. Signup retries with a unique fw_ prefix.';
   if (code === 'EMAIL_NOT_VERIFIED') return 'Login ran before verifyEmail succeeded. Check TEST_BYPASS on test env.';
@@ -61,7 +64,7 @@ export function explainErrorCause(errorCode, message) {
   if (code === 'LAMBDA_TIMEOUT' || /Task timed out/i.test(msg)) return 'Lambda timed out under load. The write may still have completed.';
   if (code === 'INTERNAL_ERROR') return 'Unhandled backend/Lambda exception.';
   if (code === 'INVALID_JSON') return 'Response was not JSON (gateway/Lambda crash).';
-  if (code === 'NETWORK') return 'HTTP call did not complete.';
+  if (code === 'NOT_FOUND') return 'Verify GET ran, but the created league was not in the list. The timeout write did not complete.';
   if (code === 'LEAGUE_NAME_TAKEN') return 'League name is already taken. The check or create collided.';
   if (code === 'LEAGUE_CREATION_LIMIT') return 'User hit the daily private-league creation limit (5).';
   if (code === 'LEAGUE_CREATION_CLOSED' || code === 'LEAGUE_CREATION_NOT_ALLOWED' || code === 'LEAGUE_CREATION_NOT_STARTED') return 'League creation is blocked by the current NFL timeframe.';
@@ -72,7 +75,9 @@ export function explainErrorCause(errorCode, message) {
   if (code === 'TEAM_CREATION_CLOSED' || code === 'TEAM_CREATION_NOT_ALLOWED' || code === 'TEAM_CREATION_NOT_STARTED') return 'Team creation is blocked by the current NFL timeframe.';
   if (code === 'INVALID_INVITE_CODE' || code === 'INVITE_CODE_REQUIRED') return 'Invite code is missing or does not match a private Blitz league.';
   if (code === 'LEAGUE_NOT_PRIVATE') return 'That league is public. Use joinPublicBlitzLeague, not the private invite join.';
+  if (code === 'LEAGUE_NOT_PUBLIC') return 'That league is not public. Use joinPrivateBlitzLeague with an invite code, or pick the Extreme public league from getPublicBlitzLeagues.';
   if (code === 'LEAGUE_MEMBERSHIP_ALREADY_EXISTS') return 'This user is already a member of that league.';
+  if (code === 'WEEKLY_CHALLENGE_JOIN_CLOSED' || code === 'WEEKLY_CHALLENGE_JOIN_NOT_ALLOWED' || code === 'WEEKLY_CHALLENGE_JOIN_GAME_WEEK_CHANGED') return 'Weekly challenge join is blocked by the current game week or NFL timeframe.';
   if (code === 'LEAGUE_OWNER_TEAM_NOT_CREATED') return 'Host must create their owner team before others can join.';
   if (code === 'LEAGUE_JOINED_TEAM_NOT_CREATED') return 'User previously joined a league without creating a team. Create that team first.';
   if (code === 'LEAGUE_JOIN_CLOSED' || code === 'LEAGUE_JOIN_NOT_ALLOWED' || code === 'LEAGUE_JOIN_NOT_STARTED') return 'Private league join is blocked by the current NFL timeframe.';
