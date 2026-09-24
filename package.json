@@ -8,7 +8,19 @@
     "signup": "dotenv -- k6 run main.js -e SUITE=signup",
     "login": "dotenv -- k6 run main.js -e SUITE=login",
     "delete": "dotenv -- k6 run main.js -e SUITE=delete-accounts",
-    "lifecycle": "dotenv -- k6 run main.js -e SUITE=full-lifecycle"
+    "lifecycle": "dotenv -- k6 run main.js -e SUITE=full-lifecycle",
+    "blitz:league": "dotenv -- k6 run main.js -e SUITE=blitz-create-league",
+    "blitz:team": "dotenv -- k6 run main.js -e SUITE=blitz-create-team",
+    "blitz:owner": "dotenv -- k6 run main.js -e SUITE=blitz-owner-setup",
+    "blitz:join": "dotenv -- k6 run main.js -e SUITE=blitz-join-league",
+    "blitz:join-public": "dotenv -- k6 run main.js -e SUITE=blitz-join-public-league",
+    "blitz:public-lineup": "dotenv -- k6 run main.js -e SUITE=blitz-public-lineup",
+    "blitz:public-standings": "dotenv -- k6 run main.js -e SUITE=blitz-public-standings",
+    "blitz:lineup": "dotenv -- k6 run main.js -e SUITE=blitz-create-lineup",
+    "blitz:update": "dotenv -- k6 run main.js -e SUITE=blitz-update-lineup",
+    "blitz:get-lineup": "dotenv -- k6 run main.js -e SUITE=blitz-get-lineup",
+    "blitz:league-details": "dotenv -- k6 run main.js -e SUITE=blitz-league-details",
+    "blitz:league-results": "dotenv -- k6 run main.js -e SUITE=blitz-league-results"
   },
   "devDependencies": {
     "dotenv-cli": "^8.0.0"

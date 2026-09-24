@@ -1,5 +1,5 @@
-import { recordStep, stepPassed } from '../core/flow.tracker.js';
-import { deleteUserAccountByEmail, deleteUserOk } from '../graphql/auth.graphql.js';
+import { recordStep, stepPassed } from '../../core/flow.tracker.js';
+import { deleteUserAccountByEmail, deleteUserOk } from '../../graphql/auth.graphql.js';
 
 export const id = 'deleteAccounts';
 
@@ -14,7 +14,7 @@ export function run(ctx) {
   if (!token || !email) {
     throw new Error(
       'Scenario "deleteAccounts" needs ctx.data.token and ctx.data.email. ' +
-      'Put an authenticating scenario (login or signup) before it in the suite.'
+      'Put login or signup before it in the suite.'
     );
   }
 

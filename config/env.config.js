@@ -20,6 +20,8 @@ export const SUITE = (__ENV.SUITE || 'login').trim();
 export const VUS = parseInt(__ENV.VUS || '1', 10);
 export const TOTAL_ITERATIONS = parseInt(__ENV.ITERATIONS || '1', 10);
 export const REPORT_DIR = __ENV.REPORT_DIR || 'reports';
+export const JOIN_HOST_EMAIL = (__ENV.JOIN_HOST_EMAIL || '').trim();
+export const JOIN_INVITE_CODE = (__ENV.JOIN_INVITE_CODE || '').trim();
 
 export function headers(token) {
   const h = {

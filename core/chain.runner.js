@@ -47,6 +47,64 @@ function skipUnrecorded(flow, plan, reason) {
   }
 }
 
+function seedData(user, seed) {
+  const blitz = (user && user.blitz) || {};
+  const targetLeague = seed.lineupLeagueId ? String(seed.lineupLeagueId) : '';
+  let leagueId = blitz.leagueId || '';
+  let leagueName = blitz.leagueName || '';
+  let teamId = blitz.teamId || '';
+  let teamName = blitz.teamName || '';
+
+  if (targetLeague) {
+    leagueId = targetLeague;
+    leagueName = '';
+    if (String(blitz.joinedLeagueId || '') === targetLeague && blitz.joinedTeamId) {
+      teamId = String(blitz.joinedTeamId);
+      teamName = blitz.joinedTeamName || '';
+    } else if (String(blitz.leagueId || '') === targetLeague && blitz.teamId) {
+      teamId = String(blitz.teamId);
+      teamName = blitz.teamName || '';
+      leagueName = blitz.leagueName || '';
+    } else {
+      teamId = '';
+      teamName = '';
+    }
+  }
+
+  return {
+    email: (user && user.email) || '',
+    username: (user && user.username) || '',
+    userId: (user && user.userId) || '',
+    token: '',
+    blitzLeagueId: leagueId,
+    blitzLeagueName: leagueName,
+    blitzTeamId: teamId,
+    blitzTeamName: teamName,
+    blitzInviteCode: seed.inviteCode || blitz.inviteCode || '',
+    blitzJoinedLeagueId: blitz.joinedLeagueId || '',
+    blitzLineupWeek: seed.timeframe && seed.timeframe.week ? String(seed.timeframe.week) : (blitz.lineupWeek || ''),
+    blitzLineupLeagueId: targetLeague,
+    blitzLeagueMembers: '',
+    blitzForceLargeLeagueDetails: !!seed.forceLargeLeagueDetails,
+    effSeasonType: seed.timeframe ? String(seed.timeframe.seasonType || '') : '',
+    effWeek: seed.timeframe ? String(seed.timeframe.week || '') : '',
+    effSeasonPhase: seed.timeframe ? String(seed.timeframe.seasonPhase || '') : '',
+  };
+}
+
+function syncFlow(flow, data) {
+  flow.email = data.email || flow.email;
+  flow.username = data.username || flow.username;
+  flow.userId = data.userId || flow.userId;
+  flow.blitzLeagueId = data.blitzLeagueId || flow.blitzLeagueId || '';
+  flow.blitzLeagueName = data.blitzLeagueName || flow.blitzLeagueName || '';
+  flow.blitzTeamId = data.blitzTeamId || flow.blitzTeamId || '';
+  flow.blitzTeamName = data.blitzTeamName || flow.blitzTeamName || '';
+  flow.blitzInviteCode = data.blitzInviteCode || flow.blitzInviteCode || '';
+  flow.blitzJoinedLeagueId = data.blitzJoinedLeagueId || flow.blitzJoinedLeagueId || '';
+  flow.blitzLineupWeek = data.blitzLineupWeek || flow.blitzLineupWeek || '';
+}
+
 export function runChain(scenarioNames, registry, seed) {
   const plan = buildPlan(scenarioNames, registry);
   const user = seed.user || null;
@@ -61,12 +119,7 @@ export function runChain(scenarioNames, registry, seed) {
     flow: flow,
     user: user,
     password: seed.password,
-    data: {
-      email: (user && user.email) || '',
-      username: (user && user.username) || '',
-      userId: (user && user.userId) || '',
-      token: '',
-    },
+    data: seedData(user, seed),
     step: null,
   };
 
@@ -85,10 +138,7 @@ export function runChain(scenarioNames, registry, seed) {
     console.log(`[${flow.flowId}] >>> scenario ${i + 1}/${scenarioNames.length}: ${name}`);
 
     const ok = scenario.run(ctx);
-
-    flow.email = ctx.data.email || flow.email;
-    flow.username = ctx.data.username || flow.username;
-    flow.userId = ctx.data.userId || flow.userId;
+    syncFlow(flow, ctx.data);
 
     if (!ok) {
       failedAt = name;

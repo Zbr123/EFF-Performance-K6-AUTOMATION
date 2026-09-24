@@ -1,4 +1,4 @@
-import { gql, isSuccessCode } from '../core/http.client.js';
+import { gql, httpOk, isSuccessCode } from '../core/http.client.js';
 
 export const Q_SIGNUP = `mutation SignUp($first_name: String!, $last_name: String!, $username: String!, $email: String!, $address: AddressInput!, $dob: String!, $phone: String, $heard_about_us: String, $profile_picture: String, $referral_code: String) { signUp(first_name: $first_name, last_name: $last_name, username: $username, email: $email, address: $address, dob: $dob, phone: $phone, heard_about_us: $heard_about_us, profile_picture: $profile_picture, referral_code: $referral_code) { statusCode message email temporarySignupKey } }`;
 
@@ -41,25 +41,25 @@ export function deleteUserAccountByEmail(email, token, ctx) {
 
 export function signupOk(resp) {
   const data = resp.body && resp.body.signUp;
-  return !resp.is5xx && resp.res.status === 200 && !!(data && data.temporarySignupKey);
+  return httpOk(resp) && !!(data && data.temporarySignupKey);
 }
 
 export function setPasswordOk(resp) {
   const data = resp.body && resp.body.setPassword;
-  return !resp.is5xx && resp.res.status === 200 && isSuccessCode(data);
+  return httpOk(resp) && isSuccessCode(data);
 }
 
 export function verifyEmailOk(resp) {
   const data = resp.body && resp.body.verifyEmail;
-  return !resp.is5xx && resp.res.status === 200 && isSuccessCode(data);
+  return httpOk(resp) && isSuccessCode(data);
 }
 
 export function loginOk(resp) {
   const data = resp.body && resp.body.login;
-  return !resp.is5xx && resp.res.status === 200 && !!(data && data.accessToken);
+  return httpOk(resp) && !!(data && data.accessToken);
 }
 
 export function deleteUserOk(resp) {
   const data = resp.body && resp.body.deleteUserAccountByEmail;
-  return !resp.is5xx && resp.res.status === 200 && isSuccessCode(data);
+  return httpOk(resp) && isSuccessCode(data);
 }

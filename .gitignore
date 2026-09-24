@@ -1,6 +1,12 @@
-# Generated k6 reports — keep the folder, ignore everything written into it
-reports/*
+# Generated k6 reports — keep domain folders, ignore run output
+reports/**
 !reports/.gitkeep
+!reports/auth/
+!reports/blitz/
+!reports/exchange/
+!reports/auth/.gitkeep
+!reports/blitz/.gitkeep
+!reports/exchange/.gitkeep
 
 # Local account pool written by the signup suite — keep the folder only
 data/*
