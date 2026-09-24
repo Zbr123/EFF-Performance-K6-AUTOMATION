@@ -85,8 +85,8 @@ That is why combining features never needs a new file. The same `deleteAccounts`
 | `blitz-owner-setup` | `login` → `createBlitzLeague` → `createBlitzTeam` |
 | `blitz-join-league` | `login` → `joinPrivateBlitzLeague` → `createBlitzTeam` |
 | `blitz-join-public-league` | `login` → `joinPublicBlitzLeague` → `createBlitzTeam` |
-| `blitz-public-lineup` | `login` → `createBlitzLineup` → `updateBlitzLineup` (public Extreme league team) |
-| `blitz-public-standings` | `login` → `getBlitzLeagueDetails` → `getLeagueResultsByWeek` (public Extreme; FirstHalf/SecondHalf/Championship only) |
+| `blitz-public-lineup` | `login` → `createBlitzLineup` → `updateBlitzLineup (public Extreme league team)` |
+| `blitz-public-standings` | `login` → `getBlitzLeagueDetails` → `getLeagueResultsByWeek (public Extreme; FirstHalf/SecondHalf/Championship only)` |
 | `blitz-create-lineup` | `login` → `createBlitzLineup` |
 | `blitz-update-lineup` | `login` → `createBlitzLineup` → `updateBlitzLineup` |
 | `blitz-get-lineup` | `login` → `getCurrentWeekBlitzLineup` |
