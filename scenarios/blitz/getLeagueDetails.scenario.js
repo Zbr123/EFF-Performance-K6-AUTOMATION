@@ -1,4 +1,5 @@
 import { recordBusinessRule, recordStep, stepPassed } from '../../core/flow.tracker.js';
+import { requireData, requireToken, textValue } from '../../utils/flow.util.js';
 import {
   getBlitzLeague,
   getBlitzLeagueOk,
@@ -14,23 +15,36 @@ export const steps = [
   { key: 'getBlitzLeagueDetails', label: 'getBlitzLeagueDetails' },
 ];
 
+export function timeframeData(ctx) {
+  return {
+    seasonType: ctx.data.effSeasonType,
+    week: ctx.data.effWeek,
+    seasonPhase: ctx.data.effSeasonPhase,
+  };
+}
+
+export function timeframeText(timeframe) {
+  return `SeasonType=${textValue(timeframe.seasonType) || '-'} Week=${textValue(timeframe.week) || '-'} phase=${textValue(timeframe.seasonPhase) || '-'}`;
+}
+
+export function describeRankedTeam(team, pointsField) {
+  if (!team) return '';
+  const name = team.Team_Name || team.Team_ID || '';
+  const rank = team.Rank == null ? '' : `rank ${team.Rank}`;
+  const points = team[pointsField] == null ? '' : `${team[pointsField]} pts`;
+  return [name, rank, points].filter((part) => part !== '').join(' - ');
+}
+
 export function run(ctx) {
   const flow = ctx.flow;
-  const token = ctx.data.token;
-  const leagueId = ctx.data.blitzLeagueId ? String(ctx.data.blitzLeagueId) : '';
+  const token = requireToken(ctx, 'getBlitzLeagueDetails');
+  const leagueId = requireData(
+    ctx,
+    'blitzLeagueId',
+    'getBlitzLeagueDetails',
+    'ctx.data.blitzLeagueId from the target league or the owned league'
+  );
 
-  if (!token) {
-    throw new Error(
-      'Scenario "getBlitzLeagueDetails" needs ctx.data.token. Put login or signup before it in the suite.'
-    );
-  }
-  if (!leagueId) {
-    throw new Error(
-      'Scenario "getBlitzLeagueDetails" needs ctx.data.blitzLeagueId from the target league (JOIN_HOST_EMAIL + JOIN_INVITE_CODE) or the owned league.'
-    );
-  }
-
-  console.log(`[${flow.flowId}]     leagueId = ${leagueId}`);
 
   const leagueResp = getBlitzLeague(leagueId, token, flow.flowId);
   const league = pickBlitzLeague(leagueResp, leagueId);
@@ -43,16 +57,8 @@ export function run(ctx) {
   ctx.data.blitzLeagueMembers = league.Members == null ? '' : String(league.Members);
   if (league.Invite_Code) ctx.data.blitzInviteCode = String(league.Invite_Code);
 
-  console.log(
-    `[${flow.flowId}]     members=${ctx.data.blitzLeagueMembers} name=${ctx.data.blitzLeagueName}`
-  );
-
   const planned = ctx.step('getBlitzLeagueDetails');
-  const timeframe = {
-    seasonType: ctx.data.effSeasonType,
-    week: ctx.data.effWeek,
-    seasonPhase: ctx.data.effSeasonPhase,
-  };
+  const timeframe = timeframeData(ctx);
   const view = pickBlitzLeagueDetailsView(
     timeframe,
     ctx.data.blitzLeagueMembers,
@@ -65,7 +71,7 @@ export function run(ctx) {
         flow,
         planned,
         'PRESEASON_NO_STANDINGS',
-        `Preseason has no matches; standings unavailable (SeasonType=${ctx.data.effSeasonType || '-'} Week=${ctx.data.effWeek || '-'} phase=${ctx.data.effSeasonPhase || '-'})`
+        `Preseason has no matches; standings unavailable (${timeframeText(timeframe)})`
       );
       return true;
     }
@@ -74,17 +80,24 @@ export function run(ctx) {
       planned,
       'SKIP',
       null,
-      `no league details view for SeasonType=${ctx.data.effSeasonType || '-'} Week=${ctx.data.effWeek || '-'} Members=${ctx.data.blitzLeagueMembers || '-'}`
+      `no league details view for ${timeframeText(timeframe)} Members=${ctx.data.blitzLeagueMembers || '-'}`,
+      'business'
     );
     return true;
   }
 
-  console.log(
-    `[${flow.flowId}]     ${view.label} leagueId=${ctx.data.blitzLeagueId} week=${ctx.data.effWeek} members=${ctx.data.blitzLeagueMembers}`
-  );
-
   const detailsResp = view.call(ctx.data.blitzLeagueId, token, flow.flowId);
-  const okDetails = stepPassed(detailsResp, view.ok(detailsResp));
+  const payload = (detailsResp.body && detailsResp.body[view.label]) || {};
+  const details = payload.details || {};
+  const leagueMatches = details.League_ID != null &&
+    String(details.League_ID) === String(ctx.data.blitzLeagueId);
+  const okDetails = stepPassed(detailsResp, view.ok(detailsResp) && leagueMatches);
+  if (okDetails) {
+    const teams = Array.isArray(details.Teams) ? details.Teams : [];
+    ctx.data.blitzDetailsView = view.label;
+    ctx.data.blitzDetailsTeamCount = textValue(teams.length);
+    ctx.data.blitzDetailsTopTeam = describeRankedTeam(teams[0], 'Total_Points');
+  }
   recordStep(
     flow,
     { num: planned.num, key: planned.key, label: view.label },

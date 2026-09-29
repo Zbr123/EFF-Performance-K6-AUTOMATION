@@ -14,20 +14,22 @@ function metricLine(name, metric) {
 export function textSummary(data) {
   const metrics = (data && data.metrics) || {};
   const names = [
-    'checks',
-    'http_req_failed',
-    'http_req_duration',
-    'http_reqs',
-    'iterations',
-    'vus',
-    'server_errors_5xx',
-    'users_completed',
-    'users_all_passed',
-    'users_partial_fail',
+    ['checks', 'checks'],
+    ['http_req_failed', 'http_req_failed'],
+    ['http_req_duration', 'http_req_duration'],
+    ['http_reqs', 'http_reqs'],
+    ['iterations', 'iterations'],
+    ['vus', 'vus'],
+    ['server_errors_5xx', 'server_errors_5xx'],
+    ['api_errors', 'backend_errors'],
+    ['business_errors', 'business_errors'],
+    ['users_completed', 'users_completed'],
+    ['users_all_passed', 'users_all_passed'],
+    ['users_partial_fail', 'users_partial_fail'],
   ];
   const lines = ['', '  █ EFF k6 summary', ''];
-  names.forEach((name) => {
-    const line = metricLine(name, metrics[name]);
+  names.forEach(([metricName, label]) => {
+    const line = metricLine(label, metrics[metricName]);
     if (line) lines.push(line);
   });
   lines.push('');

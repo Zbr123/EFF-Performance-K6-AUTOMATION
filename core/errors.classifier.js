@@ -1,11 +1,12 @@
 const CATEGORY_LABELS = {
   ok: 'OK',
-  validation: 'Backend validation',
+  validation: 'Backend error',
   business_rule: 'Business rule',
-  server_error: 'Server error (5xx)',
-  lambda_fail: 'Lambda fail / timeout',
+  scenario_error: 'Scenario error',
+  server_error: 'Backend error (5xx)',
+  lambda_fail: 'Backend timeout',
   network_error: 'Network error',
-  skipped: 'Skipped (earlier step failed)',
+  skipped: 'Skipped',
   unknown: 'Unknown',
 };
 
@@ -23,6 +24,10 @@ export function classifyFailure(respObj) {
   const code = (gqlErr && gqlErr.errorCode) || (status !== 200 && status !== 'n/a' ? `HTTP_${status}` : 'UNKNOWN');
   const message = (gqlErr && gqlErr.message) || '';
   const combined = `${code} ${message}`;
+
+  if (code === 'SCENARIO_EXCEPTION') {
+    return { category: 'scenario_error', code, message: message || 'Scenario/configuration error', httpStatus: status };
+  }
 
   if (/LAMBDA_TIMEOUT|LAMBDA_|Task timed out|Lambda\.|execution timed out|lambda fail/i.test(combined)) {
     return { category: 'lambda_fail', code: code || 'LAMBDA_FAIL', message: message || 'Lambda failure / timeout', httpStatus: status };
@@ -63,6 +68,7 @@ export function explainErrorCause(errorCode, message) {
   if (code === 'ACTIVATION_ALREADY_SENT') return 'Signup resend window; wait before signing up the same email again.';
   if (code === 'LAMBDA_TIMEOUT' || /Task timed out/i.test(msg)) return 'Lambda timed out under load. The write may still have completed.';
   if (code === 'INTERNAL_ERROR') return 'Unhandled backend/Lambda exception.';
+  if (code === 'SCENARIO_EXCEPTION') return 'Scenario prerequisite, configuration, or JavaScript error; inspect the step reason.';
   if (code === 'INVALID_JSON') return 'Response was not JSON (gateway/Lambda crash).';
   if (code === 'NOT_FOUND') return 'Verify GET ran, but the created league was not in the list. The timeout write did not complete.';
   if (code === 'LEAGUE_NAME_TAKEN') return 'League name is already taken. The check or create collided.';
@@ -84,7 +90,7 @@ export function explainErrorCause(errorCode, message) {
   if (code === 'LEAGUE_REJOIN_CLOSED' || code === 'LEAGUE_REJOIN_NOT_ALLOWED' || code === 'LEAGUE_REJOIN_NOT_STARTED') return 'Rejoin is blocked by the current NFL timeframe.';
   if (code === 'LINEUP_ALREADY_EXISTS') return 'This team already has a lineup for the current week. Lineups are per team; the same user can still create one on another team.';
   if (code === 'LINEUP_CREATION_NOT_STARTED' || code === 'LINEUP_CREATION_CLOSED') return 'Lineup creation is blocked by the current NFL timeframe.';
-  if (code === 'LAST_GAME_STARTED') return 'Lineup create closed because the last game of the week has started.';
+  if (code === 'LAST_GAME_STARTED') return 'The operation is blocked because the last game of the week has started.';
   if (code === 'FUTURE_WEEK_NOT_ALLOWED' || code === 'INVALID_WEEK_VALUE' || code === 'WEEK_REQUIRED') return 'Results week is missing, invalid, or still in the future.';
   if (code === 'POSTSEASON_NOT_PLAYED_YET') return 'Postseason results are locked until that week is reached.';
   if (code === 'LEAGUE_VIEW_NOT_STARTED') return 'League details view is blocked by the current NFL timeframe.';
@@ -105,9 +111,21 @@ export function explainErrorCause(errorCode, message) {
   if (code === 'RB_UNIQUENESS_VIOLATION') return 'RB1 and RB2 must be different players.';
   if (code === 'WR_UNIQUENESS_VIOLATION') return 'WR1 and WR2 must be different players.';
   if (code === 'HALF_REUSED') return 'That player or NFL team was already used in this half for this Blitz team.';
-  if (code === 'BYE_WEEK') return 'That player or NFL team is on a bye this week.';
-  if (code === 'GAME_ALREADY_STARTED' || code === 'GAME_ALREADY_PLAYED' || code === 'CANNOT_CHANGE_ALREADY_STARTED' || code === 'CANNOT_CHANGE_ALREADY_PLAYED') return 'That slot or selection is locked because the game has started or finished.';
+  if (code === 'BYE_WEEK') return 'That player or NFL team is on a bye this week; check the operation-specific eligibility rule.';
+  if (code === 'GAME_ALREADY_STARTED' || code === 'GAME_ALREADY_PLAYED' || code === 'CANNOT_CHANGE_ALREADY_STARTED' || code === 'CANNOT_CHANGE_ALREADY_PLAYED' || code === 'GAME_IN_PROGRESS') return 'That slot or selection is locked because the game has started or is in progress.';
   if (code === 'PLAYER_FREE_AGENT' || code === 'PLAYER_PERSONAL_LEAVE' || code === 'PLAYER_SUSPENDED') return 'That player cannot be selected in the current status.';
+  if (code === 'ASSET_NOT_OWNED') return 'The selected Exchange asset is not owned by the target team.';
+  if (code === 'TRANSACTION_LIMIT_REACHED') return 'The Exchange weekly transaction limit is exhausted.';
+  if (code === 'SEASON_FINISHED') return 'Exchange trading is disabled because the season is finished.';
+  if (code === 'ASSET_TRADING_NOT_STARTED') return 'Exchange trading has not started for the current timeframe.';
+  if (code === 'NO_SELLABLE_ASSET') return 'The Exchange portfolio has no asset that is currently sellable.';
+  if (code === 'NO_BUYABLE_ASSET') return 'The Exchange portfolio/catalog has no affordable asset that can be bought.';
+  if (code === 'CASH_UNAVAILABLE') return 'The portfolio cash balance was unavailable, so no trade was attempted.';
+  if (code === 'TRANSACTION_STATE_UNAVAILABLE') return 'The weekly Exchange transaction state was unavailable, so no trade was attempted.';
+  if (code === 'NO_UNUSED_SELECTABLE_ASSET') return 'No unused selectable player or team was available for the requested lineup slot.';
+  if (code === 'NO_LEAGUE_DETAILS_VIEW') return 'No standings/details view is available for the current league timeframe.';
+  if (code === 'NO_RESULTS_WEEK') return 'No results week is available for the current timeframe.';
+  if (code === 'BUSINESS_SKIP') return 'A business condition prevented this step from running.';
   if (code && code !== 'OK' && code !== 'n/a') return `Backend returned ${code}. See message.`;
   return 'See error message for details.';
 }

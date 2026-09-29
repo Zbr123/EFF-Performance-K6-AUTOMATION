@@ -1,6 +1,7 @@
-import { PASSWORD } from '../../config/env.config.js';
+import { EMAIL_DOMAIN, EMAIL_PREFIX, PASSWORD } from '../../config/env.config.js';
 import { recordStep, stepPassed } from '../../core/flow.tracker.js';
-import { makeIdentity } from '../../utils/identity.util.js';
+import { applyLoginResult } from './login.scenario.js';
+import { randomString } from '../../utils/random.util.js';
 import {
   login,
   loginOk,
@@ -21,6 +22,20 @@ export const steps = [
   { key: 'login', label: 'login' },
 ];
 
+function makeIdentity() {
+  const unique = `${Date.now()}${__VU}${__ITER}${randomString(4)}`.toLowerCase();
+  return {
+    first_name: 'Load',
+    last_name: 'Test',
+    username: `fw_${unique}`.substring(0, 24),
+    email: `${EMAIL_PREFIX}+fw_${unique}@${EMAIL_DOMAIN}`,
+    dob: '2000-10-30',
+    state: 'TX',
+    heard_about_us: 'Other',
+    profile_picture: 'icon_bear',
+  };
+}
+
 export function run(ctx) {
   const flow = ctx.flow;
   const identity = makeIdentity();
@@ -30,7 +45,6 @@ export function run(ctx) {
   flow.email = identity.email;
   flow.username = identity.username;
 
-  console.log(`[${flow.flowId}]     new identity = ${identity.email}`);
 
   const signupResp = signUp(identity, flow.flowId);
   const okSignup = stepPassed(signupResp, signupOk(signupResp));
@@ -50,10 +64,7 @@ export function run(ctx) {
 
   const loginResp = login(identity.email, PASSWORD, flow.flowId);
   const okLogin = stepPassed(loginResp, loginOk(loginResp));
-  if (okLogin) {
-    ctx.data.token = loginResp.body.login.accessToken;
-    ctx.data.userId = (loginResp.body.login.user && loginResp.body.login.user._id) || '';
-  }
+  if (okLogin) applyLoginResult(ctx, loginResp);
   recordStep(flow, ctx.step('login'), okLogin ? 'PASS' : 'FAIL', loginResp);
 
   return okLogin;

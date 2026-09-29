@@ -1,4 +1,5 @@
 import { recordStep, stepPassed } from '../../core/flow.tracker.js';
+import { requireToken } from '../../utils/flow.util.js';
 import { createBlitzLineup, createBlitzLineupOk, lineupAlreadyExists } from '../../graphql/blitz.graphql.js';
 
 export const id = 'createBlitzLineup';
@@ -49,14 +50,9 @@ export function stampLineupIds(ctx, teamId) {
 
 export function run(ctx) {
   const flow = ctx.flow;
-  const token = ctx.data.token;
+  const token = requireToken(ctx, 'createBlitzLineup');
   const teamId = lineupTeamId(ctx);
 
-  if (!token) {
-    throw new Error(
-      'Scenario "createBlitzLineup" needs ctx.data.token. Put login or signup before it in the suite.'
-    );
-  }
   if (!teamId) {
     throw new Error(
       'Scenario "createBlitzLineup" needs the team in the target league (joinedTeamId) or the owned teamId.'
@@ -64,9 +60,7 @@ export function run(ctx) {
   }
 
   if (ctx.data.blitzLineupLeagueId) {
-    console.log(`[${flow.flowId}]     leagueId = ${ctx.data.blitzLineupLeagueId}`);
   }
-  console.log(`[${flow.flowId}]     teamId = ${teamId}`);
   stampLineupIds(ctx, teamId);
 
   const createResp = createBlitzLineup(teamId, token, flow.flowId);

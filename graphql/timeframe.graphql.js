@@ -1,6 +1,6 @@
 import { gql, httpOk, isSuccessCode } from '../core/http.client.js';
 
-export const Q_GET_EFF_TIMEFRAME = `query GetEFFTimeframe { getEFFTimeframe { statusCode message current_timeframe { Season SeasonType Week SeasonPhase LastCompletedWeek UpcomingWeek } } }`;
+const Q_GET_EFF_TIMEFRAME = `query GetEFFTimeframe { getEFFTimeframe { statusCode message current_timeframe { Season SeasonType Week SeasonPhase LastCompletedWeek UpcomingWeek } } }`;
 
 export function getEFFTimeframe(token, ctx) {
   return gql(Q_GET_EFF_TIMEFRAME, {}, token, 'getEFFTimeframe', ctx);

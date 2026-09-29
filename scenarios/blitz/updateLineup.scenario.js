@@ -1,4 +1,5 @@
 import { recordStep, stepPassed } from '../../core/flow.tracker.js';
+import { requireToken } from '../../utils/flow.util.js';
 import {
   getNFLPlayersForBlitzTeamByPosition,
   getNFLPlayersForBlitzTeamByPositionOk,
@@ -47,18 +48,54 @@ function pickDistinct(ids, count, salt, used) {
   return out;
 }
 
-function skipUpdate(ctx, stepKey, reason) {
-  recordStep(ctx.flow, ctx.step(stepKey), 'SKIP', null, reason);
+function playerDescription(resp, playerId) {
+  const data = resp && resp.body && resp.body.getNFLPlayersForBlitzTeamByPosition;
+  const rows = (data && data.players) || [];
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i].Player_ID) !== String(playerId)) continue;
+    const details = rows[i].Player_Details || {};
+    const team = rows[i].Player_NFLTeam || {};
+    const name = details.FullName || playerId;
+    const teamName = team.ShortName || team.FullName || '';
+    return teamName ? `${name} - ${playerId} - ${teamName}` : `${name} - ${playerId}`;
+  }
+  return String(playerId);
+}
+
+function teamDescription(resp, teamId) {
+  const data = resp && resp.body && resp.body.getNFLTeamsForBlitzTeamByPosition;
+  const rows = (data && data.teams) || [];
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i].Team_ID) !== String(teamId)) continue;
+    const details = rows[i].Team_Details || {};
+    const name = details.FullName || teamId;
+    const shortName = details.ShortName || '';
+    return shortName ? `${name} - ${teamId} - ${shortName}` : `${name} - ${teamId}`;
+  }
+  return String(teamId);
+}
+
+function setLineupValue(ctx, position, value) {
+  ctx.data[`blitzLineup${position}`] = value == null ? '' : String(value);
+}
+
+function skipUpdate(ctx, stepKey, reason, skipType) {
+  recordStep(ctx.flow, ctx.step(stepKey), 'SKIP', null, reason, skipType);
 }
 
 function updateSlot(ctx, teamId, token, position, valueId, stepKey) {
-  console.log(`[${ctx.flow.flowId}]     ${position} Value_ID=${valueId}`);
   const resp = updateBlitzLineupByPosition(teamId, position, valueId, token, ctx.flow.flowId);
-  const ok = stepPassed(resp, updateBlitzLineupByPositionOk(resp));
-  if (ok && resp.body.updateBlitzLineupByPosition && resp.body.updateBlitzLineupByPosition.Week != null) {
-    ctx.data.blitzLineupWeek = String(resp.body.updateBlitzLineupByPosition.Week);
+  const payload = resp.body && resp.body.updateBlitzLineupByPosition;
+  const identityMatches = !!payload &&
+    String(payload.Team_ID) === String(teamId) &&
+    String(payload.Position).toUpperCase() === String(position).toUpperCase() &&
+    String(payload.Value_ID) === String(valueId);
+  const ok = stepPassed(resp, updateBlitzLineupByPositionOk(resp) && identityMatches);
+  if (ok && payload.Week != null) {
+    ctx.data.blitzLineupWeek = String(payload.Week);
   }
   recordStep(ctx.flow, ctx.step(stepKey), ok ? 'PASS' : 'FAIL', resp);
+  return ok;
 }
 
 function fillPlayerSlot(ctx, teamId, token, catalogPosition, getKey, lineupPosition, updateKey, used, salt) {
@@ -72,15 +109,15 @@ function fillPlayerSlot(ctx, teamId, token, catalogPosition, getKey, lineupPosit
       updateKey,
       `skipped because getNFLPlayersForBlitzTeamByPosition(${lineupPosition}) failed`
     );
-    return;
+    return false;
   }
-  console.log(`[${ctx.flow.flowId}]     ${lineupPosition} selectable=${ids.length}`);
   const picked = pickDistinct(ids, 1, salt, used);
   if (!picked[0]) {
-    skipUpdate(ctx, updateKey, `skipped because no unused selectable player for ${lineupPosition}`);
-    return;
+    skipUpdate(ctx, updateKey, `skipped because no unused selectable player for ${lineupPosition}`, 'business');
+    return false;
   }
-  updateSlot(ctx, teamId, token, lineupPosition, picked[0], updateKey);
+  setLineupValue(ctx, lineupPosition, playerDescription(resp, picked[0]));
+  return updateSlot(ctx, teamId, token, lineupPosition, picked[0], updateKey);
 }
 
 function fillTeamSlot(ctx, teamId, token, catalogPosition, getKey, lineupPosition, updateKey, used, salt) {
@@ -94,26 +131,21 @@ function fillTeamSlot(ctx, teamId, token, catalogPosition, getKey, lineupPositio
       updateKey,
       `skipped because getNFLTeamsForBlitzTeamByPosition(${lineupPosition}) failed`
     );
-    return;
+    return false;
   }
-  console.log(`[${ctx.flow.flowId}]     ${lineupPosition} selectable=${ids.length}`);
   const picked = pickDistinct(ids, 1, salt, used);
   if (!picked[0]) {
-    skipUpdate(ctx, updateKey, `skipped because no unused selectable NFL team for ${lineupPosition}`);
-    return;
+    skipUpdate(ctx, updateKey, `skipped because no unused selectable NFL team for ${lineupPosition}`, 'business');
+    return false;
   }
-  updateSlot(ctx, teamId, token, lineupPosition, picked[0], updateKey);
+  setLineupValue(ctx, lineupPosition, teamDescription(resp, picked[0]));
+  return updateSlot(ctx, teamId, token, lineupPosition, picked[0], updateKey);
 }
 
 export function run(ctx) {
-  const token = ctx.data.token;
+  const token = requireToken(ctx, 'updateBlitzLineup');
   const teamId = lineupTeamId(ctx);
 
-  if (!token) {
-    throw new Error(
-      'Scenario "updateBlitzLineup" needs ctx.data.token. Put login or signup before it in the suite.'
-    );
-  }
   if (!teamId) {
     throw new Error(
       'Scenario "updateBlitzLineup" needs the team in the target league (joinedTeamId) or the owned teamId.'
@@ -121,23 +153,38 @@ export function run(ctx) {
   }
 
   if (ctx.data.blitzLineupLeagueId) {
-    console.log(`[${ctx.flow.flowId}]     leagueId = ${ctx.data.blitzLineupLeagueId}`);
   }
-  console.log(`[${ctx.flow.flowId}]     teamId = ${teamId}`);
   stampLineupIds(ctx, teamId);
 
   const usedPlayers = {};
   const usedTeams = {};
+  let allSlotsOk = true;
+  const playerSlots = [
+    ['QB', 'getNFLPlayersQB', 'QB', 'updateQB', 1],
+    ['RB', 'getNFLPlayersRB1', 'RB1', 'updateRB1', 2],
+    ['RB', 'getNFLPlayersRB2', 'RB2', 'updateRB2', 3],
+    ['WR', 'getNFLPlayersWR1', 'WR1', 'updateWR1', 4],
+    ['WR', 'getNFLPlayersWR2', 'WR2', 'updateWR2', 5],
+    ['TE', 'getNFLPlayersTE', 'TE', 'updateTE', 6],
+  ];
+  const teamSlots = [
+    ['K', 'getNFLTeamsK', 'K', 'updateK', 7],
+    ['OFF', 'getNFLTeamsOFF', 'OFF', 'updateOFF', 8],
+    ['DEF', 'getNFLTeamsDEF', 'DEF', 'updateDEF', 9],
+  ];
 
-  fillPlayerSlot(ctx, teamId, token, 'QB', 'getNFLPlayersQB', 'QB', 'updateQB', usedPlayers, 1);
-  fillPlayerSlot(ctx, teamId, token, 'RB', 'getNFLPlayersRB1', 'RB1', 'updateRB1', usedPlayers, 2);
-  fillPlayerSlot(ctx, teamId, token, 'RB', 'getNFLPlayersRB2', 'RB2', 'updateRB2', usedPlayers, 3);
-  fillPlayerSlot(ctx, teamId, token, 'WR', 'getNFLPlayersWR1', 'WR1', 'updateWR1', usedPlayers, 4);
-  fillPlayerSlot(ctx, teamId, token, 'WR', 'getNFLPlayersWR2', 'WR2', 'updateWR2', usedPlayers, 5);
-  fillPlayerSlot(ctx, teamId, token, 'TE', 'getNFLPlayersTE', 'TE', 'updateTE', usedPlayers, 6);
-  fillTeamSlot(ctx, teamId, token, 'K', 'getNFLTeamsK', 'K', 'updateK', usedTeams, 7);
-  fillTeamSlot(ctx, teamId, token, 'OFF', 'getNFLTeamsOFF', 'OFF', 'updateOFF', usedTeams, 8);
-  fillTeamSlot(ctx, teamId, token, 'DEF', 'getNFLTeamsDEF', 'DEF', 'updateDEF', usedTeams, 9);
+  for (let i = 0; i < playerSlots.length; i++) {
+    const slot = playerSlots[i];
+    if (!fillPlayerSlot(ctx, teamId, token, slot[0], slot[1], slot[2], slot[3], usedPlayers, slot[4])) {
+      allSlotsOk = false;
+    }
+  }
+  for (let i = 0; i < teamSlots.length; i++) {
+    const slot = teamSlots[i];
+    if (!fillTeamSlot(ctx, teamId, token, slot[0], slot[1], slot[2], slot[3], usedTeams, slot[4])) {
+      allSlotsOk = false;
+    }
+  }
 
-  return true;
+  return allSlotsOk;
 }

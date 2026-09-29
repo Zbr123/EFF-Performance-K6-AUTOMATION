@@ -1,4 +1,5 @@
 import { recordStep, stepPassed } from '../../core/flow.tracker.js';
+import { requireData, requireToken } from '../../utils/flow.util.js';
 import {
   joinPrivateBlitzLeague,
   joinPrivateBlitzLeagueOk,
@@ -12,19 +13,14 @@ export const steps = [
 
 export function run(ctx) {
   const flow = ctx.flow;
-  const token = ctx.data.token;
-  const inviteCode = ctx.data.blitzInviteCode;
+  const token = requireToken(ctx, 'joinPrivateBlitzLeague');
+  const inviteCode = requireData(
+    ctx,
+    'blitzInviteCode',
+    'joinPrivateBlitzLeague',
+    'ctx.data.blitzInviteCode from setup (host invite)'
+  );
 
-  if (!token) {
-    throw new Error(
-      'Scenario "joinPrivateBlitzLeague" needs ctx.data.token. Put login or signup before it in the suite.'
-    );
-  }
-  if (!inviteCode) {
-    throw new Error('Scenario "joinPrivateBlitzLeague" needs ctx.data.blitzInviteCode from setup (host invite).');
-  }
-
-  console.log(`[${flow.flowId}]     inviteCode = ${inviteCode}`);
 
   const joinResp = joinPrivateBlitzLeague(inviteCode, token, flow.flowId);
   const okJoin = stepPassed(joinResp, joinPrivateBlitzLeagueOk(joinResp));

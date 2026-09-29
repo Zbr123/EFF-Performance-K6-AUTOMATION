@@ -1,4 +1,6 @@
 import { recordBusinessRule, recordStep, stepPassed } from '../../core/flow.tracker.js';
+import { requireData, requireToken, textValue } from '../../utils/flow.util.js';
+import { describeRankedTeam, timeframeData, timeframeText } from './getLeagueDetails.scenario.js';
 import {
   getLeagueResultsByWeek,
   getLeagueResultsByWeekOk,
@@ -14,26 +16,16 @@ export const steps = [
 
 export function run(ctx) {
   const flow = ctx.flow;
-  const token = ctx.data.token;
-  const leagueId = ctx.data.blitzLeagueId ? String(ctx.data.blitzLeagueId) : '';
+  const token = requireToken(ctx, 'getLeagueResultsByWeek');
+  const leagueId = requireData(
+    ctx,
+    'blitzLeagueId',
+    'getLeagueResultsByWeek',
+    'ctx.data.blitzLeagueId from the target league or the owned league'
+  );
   const planned = ctx.step('getLeagueResultsByWeek');
 
-  if (!token) {
-    throw new Error(
-      'Scenario "getLeagueResultsByWeek" needs ctx.data.token. Put login or signup before it in the suite.'
-    );
-  }
-  if (!leagueId) {
-    throw new Error(
-      'Scenario "getLeagueResultsByWeek" needs ctx.data.blitzLeagueId from the target league (JOIN_HOST_EMAIL + JOIN_INVITE_CODE) or the owned league.'
-    );
-  }
-
-  const timeframe = {
-    seasonType: ctx.data.effSeasonType,
-    week: ctx.data.effWeek,
-    seasonPhase: ctx.data.effSeasonPhase,
-  };
+  const timeframe = timeframeData(ctx);
   const week = pickLeagueResultsWeek(timeframe);
 
   if (week == null) {
@@ -42,7 +34,7 @@ export function run(ctx) {
         flow,
         planned,
         'PRESEASON_NO_RESULTS',
-        `Preseason has no matches; weekly results unavailable (SeasonType=${ctx.data.effSeasonType || '-'} Week=${ctx.data.effWeek || '-'} phase=${ctx.data.effSeasonPhase || '-'})`
+        `Preseason has no matches; weekly results unavailable (${timeframeText(timeframe)})`
       );
       return true;
     }
@@ -51,20 +43,33 @@ export function run(ctx) {
       planned,
       'SKIP',
       null,
-      `no results week for SeasonType=${ctx.data.effSeasonType || '-'} Week=${ctx.data.effWeek || '-'} phase=${ctx.data.effSeasonPhase || '-'}`
+      `no results week for ${timeframeText(timeframe)}`,
+      'business'
     );
     return true;
   }
 
-  console.log(`[${flow.flowId}]     leagueId=${leagueId} week=${week}`);
   ctx.data.blitzLineupWeek = String(week);
 
   const resp = getLeagueResultsByWeek(leagueId, week, token, flow.flowId);
-  const ok = stepPassed(resp, getLeagueResultsByWeekOk(resp));
+  const results = (resp.body && resp.body.getLeagueResultsByWeek && resp.body.getLeagueResultsByWeek.results) || {};
+  const identityMatches = results.League_ID != null &&
+    String(results.League_ID) === String(leagueId) &&
+    results.Week != null &&
+    String(results.Week) === String(week);
+  const ok = stepPassed(resp, getLeagueResultsByWeekOk(resp) && identityMatches);
   if (ok) {
-    const results = resp.body.getLeagueResultsByWeek.results;
+    const teams = Array.isArray(results.Teams) ? results.Teams : [];
     if (results.League_Name) ctx.data.blitzLeagueName = String(results.League_Name);
     if (results.Week != null) ctx.data.blitzLineupWeek = String(results.Week);
+    ctx.data.blitzResultsTeamCount = textValue(teams.length);
+    ctx.data.blitzResultsLeader = describeRankedTeam(teams[0], 'Total_Week_Points');
+    for (let i = 0; i < teams.length; i++) {
+      if (String(teams[i].Team_ID) !== String(ctx.data.blitzTeamId)) continue;
+      ctx.data.blitzResultsOwnRank = textValue(teams[i].Rank);
+      ctx.data.blitzResultsOwnPoints = textValue(teams[i].Total_Week_Points);
+      break;
+    }
   }
   recordStep(flow, planned, ok ? 'PASS' : 'FAIL', resp);
   return ok;
