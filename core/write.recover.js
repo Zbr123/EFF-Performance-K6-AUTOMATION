@@ -1,6 +1,6 @@
 import { recordStep } from './flow.tracker.js';
 
-export function gqlErrorCode(resp) {
+function gqlErrorCode(resp) {
   return (resp && resp.gqlErr && String(resp.gqlErr.errorCode || '')) || '';
 }
 

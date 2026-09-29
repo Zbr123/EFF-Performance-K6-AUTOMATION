@@ -1,4 +1,5 @@
 import { recordStep, stepPassed } from '../../core/flow.tracker.js';
+import { requireData, requireToken } from '../../utils/flow.util.js';
 import { deleteUserAccountByEmail, deleteUserOk } from '../../graphql/auth.graphql.js';
 
 export const id = 'deleteAccounts';
@@ -9,14 +10,8 @@ export const steps = [
 
 export function run(ctx) {
   const flow = ctx.flow;
-  const { token, email } = ctx.data;
-
-  if (!token || !email) {
-    throw new Error(
-      'Scenario "deleteAccounts" needs ctx.data.token and ctx.data.email. ' +
-      'Put login or signup before it in the suite.'
-    );
-  }
+  const token = requireToken(ctx, 'deleteAccounts');
+  const email = requireData(ctx, 'email', 'deleteAccounts', 'ctx.data.email from login or signup');
 
   const deleteResp = deleteUserAccountByEmail(email, token, flow.flowId);
   const okDelete = stepPassed(deleteResp, deleteUserOk(deleteResp));

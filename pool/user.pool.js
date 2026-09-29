@@ -3,12 +3,22 @@ import exec from 'k6/execution';
 import { JOIN_HOST_EMAIL, JOIN_INVITE_CODE, PASSWORD } from '../config/env.config.js';
 import { login, loginOk } from '../graphql/auth.graphql.js';
 import {
-  fetchBlitzInviteCode,
   findBlitzLeagueByOwnerAndInvite,
+  getBlitzLeagues,
+  getBlitzLeaguesOk,
   getPublicBlitzLeagues,
   getPublicBlitzLeaguesOk,
   pickPublicBlitzLeague,
 } from '../graphql/blitz.graphql.js';
+import {
+  findExchangeLeagueByInvite,
+  findExchangeLeagueByOwnerAndInvite,
+  getExchangeLeagues,
+  getExchangeLeaguesOk,
+  getPublicExchangeLeagues,
+  getPublicExchangeLeaguesOk,
+  pickPublicExchangeLeague,
+} from '../graphql/exchange.graphql.js';
 
 let rawPoolFile = '';
 try {
@@ -40,6 +50,20 @@ function emptyBlitz() {
   };
 }
 
+function normalizeExchange(value) {
+  const exchange = value || {};
+  return {
+    leagueId: exchange.leagueId == null ? null : exchange.leagueId,
+    leagueName: exchange.leagueName == null ? null : exchange.leagueName,
+    inviteCode: exchange.inviteCode == null ? null : exchange.inviteCode,
+    teamId: exchange.teamId == null ? null : exchange.teamId,
+    teamName: exchange.teamName == null ? null : exchange.teamName,
+    joinedLeagueId: exchange.joinedLeagueId == null ? null : exchange.joinedLeagueId,
+    joinedTeamId: exchange.joinedTeamId == null ? null : exchange.joinedTeamId,
+    joinedTeamName: exchange.joinedTeamName == null ? null : exchange.joinedTeamName,
+  };
+}
+
 const poolFile = parsePoolFile(rawPoolFile);
 console.log(`[pool] loaded ${poolFile.users.length} users from data/users.json`);
 
@@ -49,7 +73,7 @@ const poolSnapshot = new SharedArray('user-pool', function () {
     username: u.username || '',
     userId: u.userId || u.user_id || '',
     blitz: u.blitz || emptyBlitz(),
-    exchange: u.exchange || { leagueId: null, teamId: null },
+    exchange: normalizeExchange(u.exchange),
   }));
 });
 
@@ -68,85 +92,102 @@ export function loadPool() {
   };
 }
 
-export function pickUser(users, iterationInTest, unique) {
-  if (!users || !users.length) return null;
-  if (unique) {
-    if (iterationInTest >= users.length) return null;
-    return users[iterationInTest];
-  }
-  return users[iterationInTest % users.length];
+export function getPoolUser(index) {
+  return poolSnapshot[index] || null;
 }
 
 function emailKey(value) {
   return String(value || '').toLowerCase();
 }
 
-function isOwner(user) {
-  return !!(user && user.blitz && user.blitz.leagueId && user.blitz.teamId);
+function inviteCodeKey(value) {
+  return String(value || '').trim().toUpperCase();
 }
 
-function pickHost(users) {
-  if (JOIN_HOST_EMAIL) {
-    const host = users.find((u) => emailKey(u.email) === emailKey(JOIN_HOST_EMAIL));
-    if (!host) {
-      exec.test.abort(`JOIN_HOST_EMAIL=${JOIN_HOST_EMAIL} is not in data/users.json`);
-    }
-    return host;
+function findLeagueByInviteCode(domain, token, wantInvite, ctx) {
+  if (domain === 'exchange') {
+    const listResp = getExchangeLeagues(token, ctx);
+    if (!getExchangeLeaguesOk(listResp)) return null;
+    const row = findExchangeLeagueByInvite(listResp, wantInvite);
+    if (!row) return null;
+    return { leagueId: String(row._id), leagueName: row.League_Name ? String(row.League_Name) : '' };
   }
 
-  const host = users.find(isOwner);
-  if (!host) {
-    exec.test.abort(
-      'No JOIN_HOST_EMAIL set, and no pool user has blitz.leagueId + blitz.teamId. ' +
-      'Run first: k6 run main.js -e SUITE=blitz-owner-setup -e ITERATIONS=1'
-    );
+  const listResp = getBlitzLeagues(token, ctx);
+  if (!getBlitzLeaguesOk(listResp)) return null;
+  const rows = (listResp.body.getBlitzLeagues && listResp.body.getBlitzLeagues.leagues) || [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || !row._id) continue;
+    if (inviteCodeKey(row.Invite_Code) !== wantInvite) continue;
+    return { leagueId: String(row._id), leagueName: row.League_Name ? String(row.League_Name) : '' };
   }
-  return host;
+  return null;
 }
 
-export function resolveJoinHost(users, password) {
-  if (JOIN_INVITE_CODE) {
-    console.log(`Join inviteCode=${JOIN_INVITE_CODE} joiners=${users.length} (host not in pool)`);
-    return { inviteCode: JOIN_INVITE_CODE, users: users };
-  }
-
-  const host = pickHost(users);
-  const leagueId = host.blitz && host.blitz.leagueId ? String(host.blitz.leagueId) : '';
-  if (!leagueId) {
+export function resolvePrivateLeagueJoin(users, password, domain) {
+  const inviteCode = inviteCodeKey(JOIN_INVITE_CODE);
+  const hostEmail = String(JOIN_HOST_EMAIL || '').trim();
+  if (!hostEmail || !inviteCode) {
     exec.test.abort(
-      `Host ${host.email} has no blitz.leagueId. Run first: k6 run main.js -e SUITE=blitz-create-league`
+      `SUITE requires both JOIN_HOST_EMAIL and JOIN_INVITE_CODE for the private ${domain} league to join. ` +
+      `Example: k6 run main.js -e SUITE=${domain}-join-private-league -e JOIN_HOST_EMAIL="<host-email>" -e JOIN_INVITE_CODE="<invite-code>"`
     );
   }
-  if (!host.blitz.teamId) {
+  if (!users || !users.length) {
     exec.test.abort(
-      `Host ${host.email} has league ${leagueId} but no owner team. ` +
-      'Run first: k6 run main.js -e SUITE=blitz-create-team -e ITERATIONS=1'
+      `SUITE needs pool users to join the private ${domain} league. ` +
+      'Run first: k6 run main.js -e SUITE=signup'
     );
   }
 
-  let inviteCode = host.blitz.inviteCode ? String(host.blitz.inviteCode) : '';
-  if (!inviteCode) {
-    const loginResp = login(host.email, password, 'setup');
-    if (!loginOk(loginResp)) {
-      exec.test.abort(`Host login failed for ${host.email}`);
-    }
-    inviteCode = fetchBlitzInviteCode(leagueId, loginResp.body.login.accessToken, 'setup');
-    if (!inviteCode) {
-      exec.test.abort(`Host league ${leagueId} returned no Invite_Code for ${host.email}`);
-    }
+  const hostLogin = login(hostEmail, password, 'setup');
+  if (!loginOk(hostLogin)) {
+    exec.test.abort(
+      `setup() login failed for JOIN_HOST_EMAIL=${hostEmail}; cannot resolve the private ${domain} league. ` +
+      'The host must use the same PASSWORD as the pool.'
+    );
   }
-
-  const joiners = users.filter((u) => {
-    if (emailKey(u.email) === emailKey(host.email)) return false;
-    const joinedId = u.blitz && u.blitz.joinedLeagueId ? String(u.blitz.joinedLeagueId) : '';
-    return joinedId !== leagueId;
-  });
-
-  console.log(
-    `Join host=${host.email} leagueId=${leagueId} inviteCode=${inviteCode} joiners=${joiners.length}`
+  const found = findLeagueByInviteCode(
+    domain,
+    hostLogin.body.login.accessToken,
+    inviteCode,
+    'setup'
   );
 
-  return { inviteCode, users: joiners };
+  if (!found || !found.leagueId) {
+    exec.test.abort(
+      `No private ${domain} league matched JOIN_HOST_EMAIL=${hostEmail} with JOIN_INVITE_CODE=${JOIN_INVITE_CODE}. ` +
+      `The code must belong to a league the host belongs to.`
+    );
+  }
+  const leagueId = found.leagueId;
+  const leagueName = found.leagueName;
+
+  const joiners = users.filter((u) => !teamInLeague(u, leagueId, domain));
+  if (joiners.length === 0) {
+    exec.test.abort(
+      `Every pool user already has a team in ${domain} league ${leagueId}. ` +
+      'Lower ITERATIONS, or sign up more users.'
+    );
+  }
+
+  console.log(
+    `${domain} private join host=${hostEmail} inviteCode=${JOIN_INVITE_CODE} leagueId=${leagueId}` +
+    (leagueName ? ` name=${leagueName}` : '') +
+    ` joiners=${joiners.length}`
+  );
+
+  return { inviteCode: JOIN_INVITE_CODE, leagueId, leagueName, users: joiners };
+}
+
+function teamInLeague(user, leagueId, domain = 'blitz') {
+  const want = String(leagueId || '');
+  const state = user && user[domain];
+  if (!state || !want) return false;
+  if (String(state.leagueId || '') === want && state.teamId) return true;
+  if (String(state.joinedLeagueId || '') === want && state.joinedTeamId) return true;
+  return false;
 }
 
 function discoverPublicExtremeLeague(users, password, emptyPoolMsg) {
@@ -207,13 +248,62 @@ export function resolvePublicBlitzLineup(users, password) {
   return { leagueId: picked.leagueId, users: members };
 }
 
-function teamInLeague(user, leagueId) {
-  const want = String(leagueId || '');
-  const blitz = user && user.blitz;
-  if (!blitz || !want) return false;
-  if (String(blitz.leagueId || '') === want && blitz.teamId) return true;
-  if (String(blitz.joinedLeagueId || '') === want && blitz.joinedTeamId) return true;
-  return false;
+function discoverPublicExtremeExchangeLeague(users, password, emptyPoolMsg) {
+  if (!users || !users.length) {
+    exec.test.abort(emptyPoolMsg);
+  }
+  const loginResp = login(users[0].email, password, 'setup');
+  if (!loginOk(loginResp)) {
+    exec.test.abort(`setup() login failed for ${users[0].email}; cannot read getPublicExchangeLeagues.`);
+  }
+  const listResp = getPublicExchangeLeagues(loginResp.body.login.accessToken, 'setup');
+  if (!getPublicExchangeLeaguesOk(listResp)) {
+    exec.test.abort('setup() getPublicExchangeLeagues failed. Cannot pick a public Extreme Exchange League_ID.');
+  }
+  const picked = pickPublicExchangeLeague(listResp.body.getPublicExchangeLeagues.leagues);
+  if (!picked || !picked._id) {
+    exec.test.abort('setup() found no public Extreme Exchange league (Game_Type EXTREME, Game_Week 0).');
+  }
+  return {
+    leagueId: String(picked._id),
+    leagueName: picked.League_Name ? String(picked.League_Name) : '',
+  };
+}
+
+export function resolvePublicExchangeJoin(users, password) {
+  const picked = discoverPublicExtremeExchangeLeague(
+    users,
+    password,
+    'SUITE needs pool users to discover a public Exchange league. Run first: k6 run main.js -e SUITE=signup'
+  );
+  const joiners = users.filter((u) => !teamInLeague(u, picked.leagueId, 'exchange'));
+  console.log(
+    `Public Exchange join leagueId=${picked.leagueId}` +
+    (picked.leagueName ? ` name=${picked.leagueName}` : '') +
+    ` joiners=${joiners.length}`
+  );
+  return { leagueId: picked.leagueId, users: joiners };
+}
+
+export function resolvePublicExchangeLineup(users, password) {
+  const picked = discoverPublicExtremeExchangeLeague(
+    users,
+    password,
+    'SUITE needs pool users who already joined the public Exchange league. Run first: k6 run main.js -e SUITE=exchange-join-public-league'
+  );
+  const members = users.filter((u) => teamInLeague(u, picked.leagueId, 'exchange'));
+  if (members.length === 0) {
+    exec.test.abort(
+      `No pool user has a team in public Exchange league ${picked.leagueId}. ` +
+      'Run first: k6 run main.js -e SUITE=exchange-join-public-league'
+    );
+  }
+  console.log(
+    `Public Exchange lineup leagueId=${picked.leagueId}` +
+    (picked.leagueName ? ` name=${picked.leagueName}` : '') +
+    ` members=${members.length}`
+  );
+  return { leagueId: picked.leagueId, users: members };
 }
 
 function leagueIdFromInviteCode(users, password, inviteCode) {
@@ -234,7 +324,7 @@ function leagueIdFromInviteCode(users, password, inviteCode) {
 
   exec.test.abort(
     `JOIN_INVITE_CODE=${inviteCode} did not match a Blitz league any pool user belongs to. ` +
-    'Join that league first: k6 run main.js -e SUITE=blitz-join-league -e JOIN_INVITE_CODE=' +
+    'Join that league first: k6 run main.js -e SUITE=blitz-join-private-league -e JOIN_INVITE_CODE=' +
     inviteCode
   );
 }
@@ -286,7 +376,7 @@ function lineupMembers(users, leagueId) {
   if (members.length === 0) {
     exec.test.abort(
       `No pool user has a team in league ${leagueId}. ` +
-      'Join first: k6 run main.js -e SUITE=blitz-join-league -e JOIN_INVITE_CODE=' +
+      'Join first: k6 run main.js -e SUITE=blitz-join-private-league -e JOIN_INVITE_CODE=' +
       (JOIN_INVITE_CODE || '<invite-code>')
     );
   }
@@ -329,6 +419,120 @@ export function resolveLineupLeague(users, password) {
   return { leagueId: '', users: owners };
 }
 
+function exchangeLeagueIdFromInviteCode(users, password, inviteCode) {
+  const want = String(inviteCode || '').trim().toUpperCase();
+  const owner = users.find(
+    (u) => u.exchange && String(u.exchange.inviteCode || '').toUpperCase() === want && u.exchange.leagueId
+  );
+  if (owner) return String(owner.exchange.leagueId);
+
+  for (let i = 0; i < users.length; i++) {
+    const user = users[i];
+    if (!user.exchange || !(user.exchange.teamId || user.exchange.joinedTeamId)) continue;
+    const loginResp = login(user.email, password, 'setup');
+    if (!loginOk(loginResp)) continue;
+    const leagueId = findExchangeLeagueByOwnerAndInvite('', want, loginResp.body.login.accessToken, 'setup');
+    if (leagueId) return leagueId;
+  }
+
+  exec.test.abort(
+    `JOIN_INVITE_CODE=${inviteCode} did not match an Exchange league any pool user belongs to. ` +
+    'Join that league first: k6 run main.js -e SUITE=exchange-join-private-league -e JOIN_HOST_EMAIL=<host-email> -e JOIN_INVITE_CODE=' +
+    inviteCode
+  );
+}
+
+function exchangeLeagueIdFromHostAndInvite(users, password, email, inviteCode) {
+  const wantInvite = String(inviteCode || '').trim().toUpperCase();
+  const owner = users.find(
+    (u) =>
+      emailKey(u.email) === emailKey(email) &&
+      u.exchange &&
+      String(u.exchange.inviteCode || '').toUpperCase() === wantInvite &&
+      u.exchange.leagueId
+  );
+  if (owner) return String(owner.exchange.leagueId);
+
+  const hostLogin = login(email, password, 'setup');
+  if (loginOk(hostLogin)) {
+    const fromHost = findExchangeLeagueByOwnerAndInvite(
+      email,
+      inviteCode,
+      hostLogin.body.login.accessToken,
+      'setup'
+    );
+    if (fromHost) return fromHost;
+  }
+
+  for (let i = 0; i < users.length; i++) {
+    const user = users[i];
+    if (!user.exchange || !(user.exchange.joinedTeamId || user.exchange.teamId)) continue;
+    const loginResp = login(user.email, password, 'setup');
+    if (!loginOk(loginResp)) continue;
+    const leagueId = findExchangeLeagueByOwnerAndInvite(
+      email,
+      inviteCode,
+      loginResp.body.login.accessToken,
+      'setup'
+    );
+    if (leagueId) return leagueId;
+  }
+
+  exec.test.abort(
+    `No Exchange league for JOIN_HOST_EMAIL=${email} with JOIN_INVITE_CODE=${inviteCode} ` +
+    'that any pool user belongs to. Join that league first with the same host email and invite code.'
+  );
+}
+
+function exchangeLineupMembers(users, leagueId) {
+  const members = users.filter((u) => teamInLeague(u, leagueId, 'exchange'));
+  if (members.length === 0) {
+    exec.test.abort(
+      `No pool user has a team in Exchange league ${leagueId}. ` +
+      'Join first: k6 run main.js -e SUITE=exchange-join-private-league -e JOIN_HOST_EMAIL=' +
+      (JOIN_HOST_EMAIL || '<host-email>') + ' -e JOIN_INVITE_CODE=' +
+      (JOIN_INVITE_CODE || '<invite-code>')
+    );
+  }
+  return members;
+}
+
+export function resolveExchangeLineupLeague(users, password) {
+  if (JOIN_HOST_EMAIL && !JOIN_INVITE_CODE) {
+    exec.test.abort(
+      'JOIN_HOST_EMAIL for Exchange also needs JOIN_INVITE_CODE so the correct league is used when that account owns more than one. ' +
+      'Owner-only portfolio/trading: omit both. Host league: pass both -e JOIN_HOST_EMAIL=... -e JOIN_INVITE_CODE=...'
+    );
+  }
+
+  if (JOIN_HOST_EMAIL && JOIN_INVITE_CODE) {
+    const leagueId = exchangeLeagueIdFromHostAndInvite(users, password, JOIN_HOST_EMAIL, JOIN_INVITE_CODE);
+    const members = exchangeLineupMembers(users, leagueId);
+    console.log(
+      `Exchange lineup host=${JOIN_HOST_EMAIL} inviteCode=${JOIN_INVITE_CODE} leagueId=${leagueId} members=${members.length}`
+    );
+    return { leagueId, users: members, inviteCode: JOIN_INVITE_CODE };
+  }
+
+  if (JOIN_INVITE_CODE) {
+    const leagueId = exchangeLeagueIdFromInviteCode(users, password, JOIN_INVITE_CODE);
+    const members = exchangeLineupMembers(users, leagueId);
+    console.log(`Exchange lineup inviteCode=${JOIN_INVITE_CODE} leagueId=${leagueId} members=${members.length}`);
+    return { leagueId, users: members, inviteCode: JOIN_INVITE_CODE };
+  }
+
+  const owners = users.filter((u) => u.exchange && u.exchange.teamId);
+  if (owners.length === 0) {
+    exec.test.abort(
+      'Owner Exchange portfolio needs pool users with exchange.teamId. ' +
+      'Run first: k6 run main.js -e SUITE=exchange-create-team'
+    );
+  }
+
+  console.log(`Exchange lineup mode=owner ownedTeams=${owners.length}`);
+  return { leagueId: '', users: owners };
+}
+
 function poolVal(value) {
   if (value == null || value === '' || value === 'unknown') return null;
   return value;
@@ -352,8 +556,8 @@ function mergeBlitz(prevBlitz, u) {
       teamId: prev.teamId || null,
       teamName: prev.teamName || null,
       joinedLeagueId: joinedLeagueId,
-      joinedTeamId: poolVal(u.blitzTeamId) || prev.joinedTeamId || null,
-      joinedTeamName: poolVal(u.blitzTeamName) || prev.joinedTeamName || null,
+      joinedTeamId: poolVal(u.blitzJoinedTeamId) || poolVal(u.blitzTeamId) || prev.joinedTeamId || null,
+      joinedTeamName: poolVal(u.blitzJoinedTeamName) || poolVal(u.blitzTeamName) || prev.joinedTeamName || null,
       lineupWeek: lineupWeek,
     };
   }
@@ -368,6 +572,40 @@ function mergeBlitz(prevBlitz, u) {
     joinedTeamId: prev.joinedTeamId || null,
     joinedTeamName: prev.joinedTeamName || null,
     lineupWeek: lineupWeek,
+  };
+}
+
+function mergeExchange(prevExchange, u) {
+  const prev = normalizeExchange(prevExchange);
+  const joinedLeagueId = poolVal(u.exchangeJoinedLeagueId);
+  const reportedLeagueId = poolVal(u.exchangeLeagueId);
+  const joinThisRun = !!(
+    joinedLeagueId &&
+    (!reportedLeagueId || String(reportedLeagueId) === String(joinedLeagueId))
+  );
+
+  if (joinThisRun) {
+    return {
+      leagueId: prev.leagueId || null,
+      leagueName: prev.leagueName || null,
+      inviteCode: prev.inviteCode || null,
+      teamId: prev.teamId || null,
+      teamName: prev.teamName || null,
+      joinedLeagueId: joinedLeagueId,
+      joinedTeamId: poolVal(u.exchangeJoinedTeamId) || poolVal(u.exchangeTeamId) || prev.joinedTeamId || null,
+      joinedTeamName: poolVal(u.exchangeJoinedTeamName) || poolVal(u.exchangeTeamName) || prev.joinedTeamName || null,
+    };
+  }
+
+  return {
+    leagueId: reportedLeagueId || prev.leagueId || null,
+    leagueName: poolVal(u.exchangeLeagueName) || prev.leagueName || null,
+    inviteCode: poolVal(u.exchangeInviteCode) || prev.inviteCode || null,
+    teamId: poolVal(u.exchangeTeamId) || prev.teamId || null,
+    teamName: poolVal(u.exchangeTeamName) || prev.teamName || null,
+    joinedLeagueId: prev.joinedLeagueId || null,
+    joinedTeamId: prev.joinedTeamId || null,
+    joinedTeamName: prev.joinedTeamName || null,
   };
 }
 
@@ -390,14 +628,20 @@ function poolEligible(u) {
 }
 
 function stampHostInvite(byEmail, newUsers) {
+  const ownersByLeague = {};
+  Object.keys(byEmail).forEach((key) => {
+    const owner = byEmail[key];
+    const leagueId = owner.blitz && owner.blitz.leagueId ? String(owner.blitz.leagueId) : '';
+    if (!leagueId) return;
+    if (!ownersByLeague[leagueId]) ownersByLeague[leagueId] = [];
+    ownersByLeague[leagueId].push(owner);
+  });
+
   (newUsers || []).forEach((u) => {
     if (!u || u.result !== 'ALL_PASS' || !u.blitzJoinedLeagueId || !u.blitzInviteCode) return;
-    const joinedId = String(u.blitzJoinedLeagueId);
-    Object.keys(byEmail).forEach((k) => {
-      const owner = byEmail[k];
-      if (owner.blitz && String(owner.blitz.leagueId) === joinedId) {
-        owner.blitz.inviteCode = u.blitzInviteCode;
-      }
+    const owners = ownersByLeague[String(u.blitzJoinedLeagueId)] || [];
+    owners.forEach((owner) => {
+      owner.blitz.inviteCode = u.blitzInviteCode;
     });
   });
 }
@@ -411,16 +655,12 @@ export function mergePool(existing, newUsers, password) {
     if (!poolEligible(u)) return;
     const key = String(u.email).toLowerCase();
     const prev = byEmail[key] || {};
-    const prevExchange = prev.exchange || {};
     byEmail[key] = {
       email: u.email,
       username: u.username || prev.username || '',
       userId: u.userId || prev.userId || '',
       blitz: mergeBlitz(prev.blitz, u),
-      exchange: {
-        leagueId: prevExchange.leagueId || null,
-        teamId: prevExchange.teamId || null,
-      },
+      exchange: mergeExchange(prev.exchange, u),
     };
   });
   stampHostInvite(byEmail, newUsers);

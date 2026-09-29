@@ -10,7 +10,7 @@ function required(name) {
 }
 
 export const GRAPHQL_URL = required('GRAPHQL_URL');
-export const API_KEY = required('API_KEY');
+const API_KEY = required('API_KEY');
 export const PASSWORD = required('PASSWORD');
 
 export const EMAIL_PREFIX = __ENV.EMAIL_PREFIX || 'szubair.alam';
@@ -20,6 +20,7 @@ export const SUITE = (__ENV.SUITE || 'login').trim();
 export const VUS = parseInt(__ENV.VUS || '1', 10);
 export const TOTAL_ITERATIONS = parseInt(__ENV.ITERATIONS || '1', 10);
 export const REPORT_DIR = __ENV.REPORT_DIR || 'reports';
+export const LOG_RESPONSE_BODIES = String(__ENV.LOG_RESPONSE_BODIES || '').toLowerCase() === 'true';
 export const JOIN_HOST_EMAIL = (__ENV.JOIN_HOST_EMAIL || '').trim();
 export const JOIN_INVITE_CODE = (__ENV.JOIN_INVITE_CODE || '').trim();
 

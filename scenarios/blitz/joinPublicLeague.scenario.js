@@ -1,4 +1,5 @@
 import { recordStep, stepPassed } from '../../core/flow.tracker.js';
+import { requireToken } from '../../utils/flow.util.js';
 import {
   getPublicBlitzLeagues,
   getPublicBlitzLeaguesOk,
@@ -20,24 +21,22 @@ function stampPublicLeague(ctx, league) {
   ctx.data.blitzLeagueId = leagueId;
   ctx.data.blitzJoinedLeagueId = leagueId;
   if (league.League_Name) ctx.data.blitzLeagueName = String(league.League_Name);
+  if (league.Members != null) ctx.data.blitzLeagueMembers = String(league.Members);
 }
 
 export function run(ctx) {
   const flow = ctx.flow;
-  const token = ctx.data.token;
-
-  if (!token) {
-    throw new Error(
-      'Scenario "joinPublicBlitzLeague" needs ctx.data.token. Put login or signup before it in the suite.'
-    );
-  }
+  const token = requireToken(ctx, 'joinPublicBlitzLeague');
 
   const listResp = getPublicBlitzLeagues(token, flow.flowId);
   const okList = stepPassed(listResp, getPublicBlitzLeaguesOk(listResp));
   recordStep(flow, ctx.step('getPublicBlitzLeagues'), okList ? 'PASS' : 'FAIL', listResp);
   if (!okList) return false;
 
-  const picked = pickPublicBlitzLeague(listResp.body.getPublicBlitzLeagues.leagues);
+  const picked = pickPublicBlitzLeague(
+    listResp.body.getPublicBlitzLeagues.leagues,
+    ctx.data.blitzPublicLeagueId
+  );
   if (!picked || !picked._id) {
     throw new Error(
       'Scenario "joinPublicBlitzLeague" found no public Extreme Blitz league (Game_Type EXTREME, Game_Week 0).'
@@ -45,7 +44,6 @@ export function run(ctx) {
   }
 
   const leagueId = String(picked._id);
-  console.log(`[${flow.flowId}]     publicLeagueId = ${leagueId}`);
   if (picked.League_Name) console.log(`[${flow.flowId}]     publicLeagueName = ${picked.League_Name}`);
 
   const joinResp = joinPublicBlitzLeague(leagueId, token, flow.flowId);

@@ -1,7 +1,8 @@
 import { categoryLabel, explainErrorCause } from '../core/errors.classifier.js';
 import { PASSWORD, REPORT_DIR, SUITE, TOTAL_ITERATIONS, VUS } from '../config/env.config.js';
-import { suiteHasScenario, suiteReportGroup, suiteReportLeaf } from '../config/suites.config.js';
+import { suiteReportGroup, suiteReportLeaf } from '../config/suites.config.js';
 import { INIT_POOL, mergePool, removeFromPool, RESOLVED_POOL_PATH } from '../pool/user.pool.js';
+import { FLOW_SUMMARY_FIELDS } from '../core/flow.fields.js';
 import { textSummary } from './text.reporter.js';
 
 function esc(s) {
@@ -30,7 +31,7 @@ function parseKv(line) {
   return out;
 }
 
-export function parseUserFlows(data) {
+function parseUserFlows(data) {
   const checks = (data.root_group && data.root_group.checks) || [];
   const users = [];
   const stepsByKey = {};
@@ -40,28 +41,15 @@ export function parseUserFlows(data) {
     if (name.startsWith('[USER] ')) {
       const kv = parseKv(name.replace('[USER] ', ''));
       const key = `${kv.vu || ''}-${kv.iter || ''}-${kv.email || ''}`;
-      users.push({
-        key,
-        vu: Number(kv.vu) || null,
-        iter: Number(kv.iter) || null,
-        email: kv.email || '',
-        username: kv.user || '',
-        userId: kv.userId || '',
-        blitzLeagueId: kv.blitzLeagueId || '',
-        blitzLeagueName: kv.blitzLeagueName || '',
-        blitzTeamId: kv.blitzTeamId || '',
-        blitzTeamName: kv.blitzTeamName || '',
-        blitzInviteCode: kv.blitzInviteCode || '',
-        blitzJoinedLeagueId: kv.blitzJoinedLeagueId || '',
-        blitzLineupWeek: kv.blitzLineupWeek || '',
-        passed: Number(kv.pass) || 0,
-        failed: Number(kv.fail) || 0,
-        skipped: Number(kv.skip) || 0,
-        recovered: Number(kv.recovered) || 0,
-        total: Number(kv.total) || 0,
-        result: kv.result || 'UNKNOWN',
-        steps: [],
+      const u = { key, vu: Number(kv.vu) || null, iter: Number(kv.iter) || null,
+        email: kv.email || '', passed: Number(kv.pass) || 0, failed: Number(kv.fail) || 0,
+        skipped: Number(kv.skip) || 0, recovered: Number(kv.recovered) || 0,
+        total: Number(kv.total) || 0, result: kv.result || 'UNKNOWN', steps: [] };
+      FLOW_SUMMARY_FIELDS.forEach((field) => {
+        const kvKey = field.key === 'username' ? 'user' : field.key;
+        u[field.key] = kv[kvKey] || '';
       });
+      users.push(u);
     } else if (name.startsWith('[STEP] ')) {
       const raw = name.replace('[STEP] ', '');
       const reasonAt = raw.indexOf('|reason=');
@@ -74,11 +62,16 @@ export function parseUserFlows(data) {
         num: Number(kv.num) || 0,
         key: kv.key || '',
         status: kv.status || '',
+        dur: kv.dur != null && kv.dur !== '' && isFinite(Number(kv.dur)) ? Math.round(Number(kv.dur)) : null,
         category: kv.cat || '',
         categoryLabel: categoryLabel(kv.cat || 'unknown'),
+        failureType: kv.failureType || categoryLabel(kv.cat || 'unknown'),
         code: kv.code || '',
         httpStatus: kv.http || '',
         message: reason,
+        recovered: kv.recovered === '1',
+        businessRule: kv.businessRule === '1',
+        businessCondition: kv.businessCondition === '1',
         label: kv.label || stepName(kv.key),
       });
     }
@@ -96,40 +89,29 @@ export function parseUserFlows(data) {
   return users;
 }
 
-function parseErrorChecks(data, kindPrefix) {
+function parseErrorChecks(data, kindPrefixes) {
   const checks = (data.root_group && data.root_group.checks) || [];
+  const prefixes = Array.isArray(kindPrefixes) ? kindPrefixes : [kindPrefixes];
   const rows = [];
-  const byEndpointCode = {};
 
   checks.forEach((c) => {
     const name = c.name || '';
-    if (!name.startsWith(kindPrefix)) return;
-    if (!c.fails) return;
+    const prefix = prefixes.find((candidate) => name.startsWith(candidate));
+    if (!prefix || !c.fails) return;
 
     const parts = name.split(' | ').map((p) => p.trim());
-    const endpoint = (parts[0] || '').replace(kindPrefix, '').trim();
+    const endpoint = (parts[0] || '').replace(prefix, '').trim();
     const status = (parts.find((p) => p.startsWith('status=')) || 'status=n/a').replace('status=', '');
     const code = (parts.find((p) => p.startsWith('code=')) || 'code=n/a').replace('code=', '');
-    if (suiteHasScenario(SUITE, 'updateBlitzLineup') && code === 'LINEUP_ALREADY_EXISTS') return;
-    if (suiteHasScenario(SUITE, 'joinPublicBlitzLeague') && code === 'LEAGUE_MEMBERSHIP_ALREADY_EXISTS') return;
     const vu = Number((parts.find((p) => p.startsWith('VU=')) || 'VU=').replace('VU=', '')) || null;
     const iter = Number((parts.find((p) => p.startsWith('iter=')) || 'iter=').replace('iter=', '')) || null;
     const message = parts.slice(5).join(' | ') || '';
     const cause = explainErrorCause(code, message);
 
     rows.push({ endpoint, http_status: status, error_code: code, count: c.fails, vu, iter, message, cause });
-
-    const key = `${endpoint}||${code}`;
-    if (!byEndpointCode[key]) {
-      byEndpointCode[key] = { endpoint, http_status: status, error_code: code, count: 0, firstIter: iter, message, cause };
-    }
-    byEndpointCode[key].count += c.fails;
   });
 
-  return {
-    rows: rows.sort((a, b) => (a.iter || 0) - (b.iter || 0)),
-    summary: Object.values(byEndpointCode).sort((a, b) => b.count - a.count),
-  };
+  return { rows: rows.sort((a, b) => (a.iter || 0) - (b.iter || 0)) };
 }
 
 function statusBadge(status) {
@@ -157,7 +139,7 @@ function buildFlowStats(users) {
   users.forEach((u) => {
     (u.steps || []).forEach((s) => {
       const name = s.label || stepName(s.key);
-      const key  = `${s.num}__${name}`;                  // unique per flow, num kept for sort
+      const key  = `${s.num}__${name}`;
       if (!stats[key]) stats[key] = { num: s.num, name, pass: 0, fail: 0, skip: 0 };
       if (s.status === 'PASS')      stats[key].pass++;
       else if (s.status === 'FAIL') stats[key].fail++;
@@ -165,6 +147,119 @@ function buildFlowStats(users) {
     });
   });
   return Object.values(stats).sort((a, b) => a.num - b.num);
+}
+
+function detailValue(value) {
+  return value == null || value === '' ? '-' : String(value);
+}
+
+function pairDetail(first, second) {
+  if ((first == null || first === '') && (second == null || second === '')) return '';
+  return `${detailValue(first)} (${detailValue(second)})`;
+}
+
+function dataRows(rows) {
+  return rows
+    .filter((row) => row[1] != null && row[1] !== '' && row[1] !== '-')
+    .map((row) => `<tr><td style="font-weight:600;color:#374151;">${esc(row[0])}</td><td class="msg-cell">${esc(row[1])}</td></tr>`)
+    .join('');
+}
+
+function dataPanel(title, rows) {
+  const body = dataRows(rows);
+  if (!body) return '';
+  return `
+    <div class="flow-data-panel" style="padding:12px;border:1px solid #dbeafe;border-radius:8px;background:#eff6ff;">
+      <div style="font-size:12px;font-weight:700;color:#1d4ed8;margin-bottom:6px;">${esc(title)}</div>
+      <table><tbody>${body}</tbody></table>
+    </div>`;
+}
+
+function buildBlitzDataPanel(u) {
+  return dataPanel('Blitz flow data', [
+    ['League', pairDetail(u.blitzLeagueName, u.blitzLeagueId)],
+    ['Members', detailValue(u.blitzLeagueMembers)],
+    ['Joined league', detailValue(u.blitzJoinedLeagueId)],
+    ['Team', pairDetail(u.blitzTeamName, u.blitzTeamId)],
+    ['Joined team', pairDetail(u.blitzJoinedTeamName, u.blitzJoinedTeamId)],
+    ['Lineup week', detailValue(u.blitzLineupWeek)],
+    ['Lineup status', detailValue(u.blitzLineupStatus)],
+    ['Week points', detailValue(u.blitzLineupTotalWeekPoints)],
+    ['Season points', detailValue(u.blitzLineupTotalSeasonPoints)],
+    ['Lineup rank', detailValue(u.blitzLineupRank)],
+    ['QB', detailValue(u.blitzLineupQB)],
+    ['RB1', detailValue(u.blitzLineupRB1)],
+    ['RB2', detailValue(u.blitzLineupRB2)],
+    ['WR1', detailValue(u.blitzLineupWR1)],
+    ['WR2', detailValue(u.blitzLineupWR2)],
+    ['TE', detailValue(u.blitzLineupTE)],
+    ['K', detailValue(u.blitzLineupK)],
+    ['OFF', detailValue(u.blitzLineupOFF)],
+    ['DEF', detailValue(u.blitzLineupDEF)],
+    ['Standings view', detailValue(u.blitzDetailsView)],
+    ['Standings teams', detailValue(u.blitzDetailsTeamCount)],
+    ['Standings leader', detailValue(u.blitzDetailsTopTeam)],
+    ['Results week', detailValue(u.blitzLineupWeek)],
+    ['Results teams', detailValue(u.blitzResultsTeamCount)],
+    ['Results leader', detailValue(u.blitzResultsLeader)],
+    ['Own result rank', detailValue(u.blitzResultsOwnRank)],
+    ['Own result points', detailValue(u.blitzResultsOwnPoints)],
+  ]);
+}
+
+function buildExchangeDataPanel(u) {
+  return dataPanel('Exchange flow data', [
+    ['League', pairDetail(u.exchangeLeagueName, u.exchangeLeagueId)],
+    ['Joined league', detailValue(u.exchangeJoinedLeagueId)],
+    ['Team', pairDetail(u.exchangeTeamName, u.exchangeTeamId)],
+    ['Joined team', pairDetail(u.exchangeJoinedTeamName, u.exchangeJoinedTeamId)],
+    ['Portfolio week', detailValue(u.exchangePortfolioWeek)],
+    ['Asset count', detailValue(u.exchangePortfolioAssetCount)],
+    ['Cash on hand', detailValue(u.exchangePortfolioCash)],
+    ['Assets value', detailValue(u.exchangePortfolioAssetsValue)],
+    ['Total value', detailValue(u.exchangePortfolioTotalValue)],
+    ['Transactions used', detailValue(u.exchangePortfolioTransactionsUsed)],
+    ['Transactions remaining', detailValue(u.exchangePortfolioTransactionsRemaining)],
+    ['Transaction limit', detailValue(u.exchangePortfolioTransactionLimit)],
+    ['Preseason transactions', detailValue(u.exchangePortfolioPreseasonTransactions)],
+    ['Total transactions', detailValue(u.exchangePortfolioTotalTransactions)],
+    ['Portfolio before', detailValue(u.exchangePortfolioBefore)],
+    ['Portfolio after', detailValue(u.exchangePortfolioAfter)],
+    ['Buy asset', detailValue(u.exchangeBuyAssetDescription)],
+    ['Buy asset ID/type', pairDetail(u.exchangeBuyAssetId, u.exchangeBuyAssetType)],
+    ['Buy price', detailValue(u.exchangeBuyAssetPrice)],
+    ['Buy candidates', detailValue(u.exchangeBuyAssetCandidates)],
+    ['Buy response asset ID', detailValue(u.exchangeBuyResponseAssetId)],
+    ['Buy completed', detailValue(u.exchangeBuyCompleted)],
+    ['Sell asset', detailValue(u.exchangeSellAssetDescription)],
+    ['Sell asset ID/type', pairDetail(u.exchangeSellAssetId, u.exchangeSellAssetType)],
+    ['Sell asset position', detailValue(u.exchangeSellAssetPosition)],
+    ['Sell price', detailValue(u.exchangeSellAssetPrice)],
+    ['Sell candidates', detailValue(u.exchangeSellAssetCandidates)],
+    ['Sell response asset ID/type', pairDetail(u.exchangeSellResponseAssetId, u.exchangeSellResponseAssetType)],
+    ['Sell response team ID', detailValue(u.exchangeSellResponseTeamId)],
+    ['Sell transaction decision', detailValue(u.exchangeSellTransactionDecision)],
+    ['Sell attempted', detailValue(u.exchangeSellAttempted)],
+    ['Sell recovered', detailValue(u.exchangeSellRecovered)],
+    ['Sell completed', detailValue(u.exchangeSellCompleted)],
+    ['Sell verification', detailValue(u.exchangeSellVerification)],
+    ['Details members', detailValue(u.exchangeDetailsLeagueMembers)],
+    ['Details teams', detailValue(u.exchangeDetailsTeamCount)],
+    ['Details leader', detailValue(u.exchangeDetailsTopTeam)],
+    ['Details own rank', detailValue(u.exchangeDetailsOwnRank)],
+    ['Transactions week', detailValue(u.exchangeTransactionsWeek)],
+    ['Transactions assets', detailValue(u.exchangeTransactionsAssetCount)],
+    ['Transactions total', detailValue(u.exchangeTransactionsTotal)],
+    ['Buy2 asset', detailValue(u.exchangeBuy2AssetDescription)],
+    ['Buy2 completed', detailValue(u.exchangeBuy2Completed)],
+    ['Trade summary', detailValue(u.exchangeTradeSummary)],
+  ]);
+}
+
+function buildDomainDataPanel(u, domain) {
+  if (domain === 'blitz') return buildBlitzDataPanel(u);
+  if (domain === 'exchange') return buildExchangeDataPanel(u);
+  return '';
 }
 
 function barColor(pct) {
@@ -210,6 +305,15 @@ function sharedCss(sr) {
   .tab-btn.active .tab-badge{background:rgba(255,255,255,.25);color:#fff}
   .tab-panel{display:none}
   .tab-panel.active{display:block}
+  .flow-data-disclosure{border-bottom:1px solid #e2e8f0;background:#f8fafc}
+  .flow-data-disclosure summary{display:flex;align-items:center;gap:8px;padding:10px 14px;cursor:pointer;list-style:none;color:#1d4ed8;font-size:12px;font-weight:700}
+  .flow-data-disclosure summary::-webkit-details-marker{display:none}
+  .flow-data-disclosure summary::after{content:'▾';margin-left:auto;color:#64748b;font-size:16px;line-height:1;transition:transform .15s}
+  .flow-data-disclosure[open] summary{background:#eff6ff}
+  .flow-data-disclosure[open] summary::after{transform:rotate(180deg)}
+  .flow-data-disclosure-context{color:#64748b;font-weight:500}
+  .flow-data-disclosure-content{padding:0 14px 12px}
+  .flow-data-disclosure-content .flow-data-panel{margin:0}
   .table-wrap{border:1px solid #e2e8f0;border-radius:12px;overflow:hidden}
   table{width:100%;border-collapse:collapse}
   thead tr{background:#f8fafc}
@@ -222,6 +326,7 @@ function sharedCss(sr) {
 }
 
 function buildUserReportHtml(users, errorsData) {
+  const domain = suiteReportGroup({ name: SUITE });
   const allPass = users.filter((u) => u.result === 'ALL_PASS').length;
   const partial  = users.length - allPass;
   const sr       = users.length ? Math.round((allPass / users.length) * 100) : 0;
@@ -246,6 +351,27 @@ function buildUserReportHtml(users, errorsData) {
     </div>`;
   }).join('');
 
+  const summaryDomainCells = (u) => {
+    if (domain === 'blitz') {
+      return `<td style="font-family:Consolas,monospace;font-size:11px;">${esc(u.blitzLeagueId || '-')}</td>` +
+        `<td style="font-family:Consolas,monospace;font-size:11px;">${esc(u.blitzTeamId || '-')}</td>` +
+        `<td>${esc(u.blitzLineupWeek || '-')}</td>`;
+    }
+    if (domain === 'exchange') {
+      const leagueId = u.exchangeLeagueId || u.exchangeJoinedLeagueId;
+      const teamId = u.exchangeTeamId || u.exchangeJoinedTeamId;
+      return `<td style="font-family:Consolas,monospace;font-size:11px;">${esc(leagueId || '-')}</td>` +
+        `<td style="font-family:Consolas,monospace;font-size:11px;">${esc(teamId || '-')}</td>`;
+    }
+    return '';
+  };
+  const summaryColspan = 9 + (domain === 'blitz' ? 3 : domain === 'exchange' ? 2 : 0);
+  const summaryHeaders = domain === 'blitz'
+    ? '<th>Blitz League ID</th><th>Blitz Team ID</th><th>Lineup Week</th>'
+    : domain === 'exchange'
+      ? '<th>Exchange League ID</th><th>Exchange Team ID</th>'
+      : '';
+
   const summaryRows = users.map((u) => {
     const rowBg = u.result !== 'ALL_PASS' ? 'background:#fffbeb;' : '';
     return `<tr style="${rowBg}">
@@ -254,32 +380,62 @@ function buildUserReportHtml(users, errorsData) {
       <td style="font-family:Consolas,monospace;font-size:11px;">${esc(u.email)}</td>
       <td style="font-size:12px;color:#6b7280;">${esc(u.username)}</td>
       <td>${esc(u.userId || '-')}</td>
-      <td style="font-family:Consolas,monospace;font-size:11px;">${esc(u.blitzLeagueId || '-')}</td>
-      <td style="font-family:Consolas,monospace;font-size:11px;">${esc(u.blitzTeamId || '-')}</td>
+      ${summaryDomainCells(u)}
       <td style="color:#166534;font-weight:700;">${u.passed}</td>
       <td style="color:#991b1b;font-weight:700;">${u.failed}</td>
       <td style="color:#6b7280;">${u.skipped}</td>
       <td>${resultBadge(u.result)}</td>
     </tr>`;
-    }).join('') || '<tr><td colspan="11" style="padding:14px;color:#6b7280;text-align:center;">No users captured</td></tr>';
+    }).join('') || `<tr><td colspan="${summaryColspan}" style="padding:14px;color:#6b7280;text-align:center;">No users captured</td></tr>`;
 
   const perUserBlocks = users.map((u) => {
     const isPass    = u.result === 'ALL_PASS';
     const hdrBg     = isPass ? '#f0fdf4' : '#fffbeb';
     const hdrBorder = isPass ? '#86efac' : '#fcd34d';
+    const domainHeader = domain === 'blitz'
+      ? `${u.blitzLeagueId ? `<span style="color:#6b7280;">· blitz league ${esc(u.blitzLeagueId)}</span>` : ''}` +
+        `${u.blitzTeamId ? `<span style="color:#6b7280;">· blitz team ${esc(u.blitzTeamId)}</span>` : ''}` +
+        `${u.blitzLineupWeek ? `<span style="color:#6b7280;">· week ${esc(u.blitzLineupWeek)}</span>` : ''}`
+      : domain === 'exchange'
+        ? `${(u.exchangeLeagueId || u.exchangeJoinedLeagueId) ? `<span style="color:#6b7280;">· exchange league ${esc(u.exchangeLeagueId || u.exchangeJoinedLeagueId)}</span>` : ''}` +
+          `${(u.exchangeTeamId || u.exchangeJoinedTeamId) ? `<span style="color:#6b7280;">· exchange team ${esc(u.exchangeTeamId || u.exchangeJoinedTeamId)}</span>` : ''}`
+        : '';
+    const domainData = buildDomainDataPanel(u, domain);
+    const flowDataDisclosure = domainData
+      ? `<details class="flow-data-disclosure">
+          <summary>
+            <span>View flow data</span>
+            <span class="flow-data-disclosure-context">VU ${esc(u.vu)} · iter ${esc(u.iter)}</span>
+          </summary>
+          <div class="flow-data-disclosure-content">${domainData}</div>
+        </details>`
+      : '';
     const stepRows  = (u.steps || []).map((s) => {
       const cause  = (s.status === 'FAIL' || s.status === 'SKIP') ? explainErrorCause(s.code, s.message) : '-';
-      const rowBg  = s.status === 'FAIL' ? 'background:#fff7ed;' : s.status === 'SKIP' ? 'background:#f9fafb;' : '';
+      const rowBg  = s.status === 'FAIL'
+        ? 'background:#fff7ed;'
+        : s.status === 'SKIP'
+          ? (s.businessCondition ? 'background:#fffbeb;' : 'background:#f9fafb;')
+          : '';
+      const flags = [
+        s.failureType || s.categoryLabel,
+        s.recovered ? 'recovered' : '',
+        s.businessRule && s.failureType !== 'Business rule' ? 'business rule' : '',
+        s.businessCondition && s.failureType !== 'Business condition' ? 'business condition' : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
       return `<tr style="${rowBg}">
         <td style="font-weight:500;color:#374151;">${esc(s.num)}. ${esc(s.label || stepName(s.key))}</td>
         <td>${statusBadge(s.status)}</td>
-        <td style="color:#6b7280;font-size:12px;">${esc(s.categoryLabel)}</td>
+        <td style="font-family:Consolas,monospace;font-size:11px;font-weight:700;">${s.dur != null ? `${s.dur}ms` : '-'}</td>
+        <td style="color:#6b7280;font-size:12px;">${esc(flags)}</td>
         <td style="font-family:Consolas,monospace;font-size:11px;">${esc(s.code || '-')}</td>
         <td style="font-weight:600;">${esc(s.httpStatus || '-')}</td>
         <td class="msg-cell">${esc(s.message || '-')}</td>
         <td style="font-size:12px;color:#6b7280;">${esc(cause)}</td>
       </tr>`;
-    }).join('') || '<tr><td colspan="7" style="padding:10px;color:#6b7280;">No step details</td></tr>';
+    }).join('') || '<tr><td colspan="8" style="padding:10px;color:#6b7280;">No step details</td></tr>';
 
     return `
     <div style="margin:0 0 12px 0;border:1px solid ${hdrBorder};border-radius:10px;overflow:hidden;">
@@ -289,14 +445,13 @@ function buildUserReportHtml(users, errorsData) {
         <span style="color:#6b7280;">iter ${esc(u.iter)}</span>
         <span style="color:#6b7280;">·</span>
         <span style="font-family:Consolas,monospace;font-size:11px;color:#374151;">${esc(u.email)}</span>
-        ${u.blitzLeagueId ? `<span style="color:#6b7280;">· league ${esc(u.blitzLeagueId)}</span>` : ''}
-        ${u.blitzTeamId ? `<span style="color:#6b7280;">· team ${esc(u.blitzTeamId)}</span>` : ''}
-        ${u.blitzLineupWeek ? `<span style="color:#6b7280;">· week ${esc(u.blitzLineupWeek)}</span>` : ''}
+        ${domainHeader}
         <span style="margin-left:auto;">${resultBadge(u.result)}</span>
       </div>
+      ${flowDataDisclosure}
       <table>
         <thead><tr>
-          <th>Step</th><th>Status</th><th>Failure Type</th><th>Error Code</th>
+          <th>Step</th><th>Status</th><th>Time</th><th>Failure Type</th><th>Error Code</th>
           <th>HTTP</th><th>Reason</th><th>Likely Cause</th>
         </tr></thead>
         <tbody>${stepRows}</tbody>
@@ -304,7 +459,7 @@ function buildUserReportHtml(users, errorsData) {
     </div>`;
   }).join('') || '<p style="color:#6b7280;padding:10px;">No step details</p>';
 
-  const errRowHtml = (rows, borderColor) => rows.length
+  const errRowHtml = (rows) => rows.length
     ? rows.map((r) => `<tr>
         <td style="font-weight:600;color:#374151;">${esc(r.endpoint)}</td>
         <td><span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:8px;font-size:12px;font-weight:700;">${esc(r.http_status)}</span></td>
@@ -321,7 +476,7 @@ function buildUserReportHtml(users, errorsData) {
     <th>VU / Iter</th><th>Message</th><th>Likely Cause</th>
   </tr></thead>`;
 
-  const { five, api } = errorsData;
+  const { backend, business } = errorsData;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -361,14 +516,14 @@ ${sharedCss(sr)}
       <div class="stat-sub">partial or full fail</div>
     </div>
     <div class="stat-box">
-      <div class="stat-label">5xx Errors</div>
-      <div class="stat-value" style="color:#dc2626">${five.rows.length}</div>
-      <div class="stat-sub">server errors</div>
+      <div class="stat-label">Backend Errors</div>
+      <div class="stat-value" style="color:#dc2626">${backend.rows.length}</div>
+      <div class="stat-sub">HTTP, GraphQL, and server failures</div>
     </div>
     <div class="stat-box">
-      <div class="stat-label">API / Business Errors</div>
-      <div class="stat-value" style="color:#7c3aed">${api.rows.length}</div>
-      <div class="stat-sub">logic errors</div>
+      <div class="stat-label">Business Errors</div>
+      <div class="stat-value" style="color:#7c3aed">${business.rows.length}</div>
+      <div class="stat-sub">business-rule conditions</div>
     </div>
     <div class="sr-box">
       <div class="stat-label" style="margin-bottom:10px;">Success Rate</div>
@@ -392,13 +547,13 @@ ${sharedCss(sr)}
       All Users — Quick Summary <span class="tab-badge">${users.length}</span>
     </button>
     <button class="tab-btn" onclick="switchTab(this,'peruser')">
-      Per User — Step Details <span class="tab-badge">${users.length}</span>
+      Per User — Step & Flow Details <span class="tab-badge">${users.length}</span>
     </button>
-    <button class="tab-btn" onclick="switchTab(this,'err5xx')">
-      Errors — 5xx <span class="tab-badge">${five.rows.length}</span>
+    <button class="tab-btn" onclick="switchTab(this,'errbackend')">
+      Backend Errors <span class="tab-badge">${backend.rows.length}</span>
     </button>
-    <button class="tab-btn" onclick="switchTab(this,'errapi')">
-      Errors — API / Business <span class="tab-badge">${api.rows.length}</span>
+    <button class="tab-btn" onclick="switchTab(this,'errbusiness')">
+      Business Errors <span class="tab-badge">${business.rows.length}</span>
     </button>
   </div>
 
@@ -408,7 +563,7 @@ ${sharedCss(sr)}
       <table>
         <thead><tr>
           <th>VU</th><th>Iteration</th><th>Email</th><th>Username</th>
-          <th>User ID</th><th>League ID</th><th>Team ID</th><th>Pass</th><th>Fail</th><th>Skip</th><th>Result</th>
+          <th>User ID</th>${summaryHeaders}<th>Pass</th><th>Fail</th><th>Skip</th><th>Result</th>
         </tr></thead>
         <tbody>${summaryRows}</tbody>
       </table>
@@ -420,17 +575,17 @@ ${sharedCss(sr)}
     ${perUserBlocks}
   </div>
 
-  <!-- TAB: 5XX ERRORS -->
-  <div id="tab-err5xx" class="tab-panel">
+  <!-- TAB: BACKEND ERRORS -->
+  <div id="tab-errbackend" class="tab-panel">
     <div class="table-wrap">
-      <table>${errTableHeaders}<tbody>${errRowHtml(five.rows)}</tbody></table>
+      <table>${errTableHeaders}<tbody>${errRowHtml(backend.rows)}</tbody></table>
     </div>
   </div>
 
-  <!-- TAB: API / BUSINESS ERRORS -->
-  <div id="tab-errapi" class="tab-panel">
+  <!-- TAB: BUSINESS ERRORS -->
+  <div id="tab-errbusiness" class="tab-panel">
     <div class="table-wrap">
-      <table>${errTableHeaders}<tbody>${errRowHtml(api.rows)}</tbody></table>
+      <table>${errTableHeaders}<tbody>${errRowHtml(business.rows)}</tbody></table>
     </div>
   </div>
 
@@ -457,8 +612,8 @@ export function handleSummary(data, suite) {
   const users = parseUserFlows(data);
 
   const errorsData = {
-    five: parseErrorChecks(data, '[5xx] '),
-    api:  parseErrorChecks(data, '[API] '),
+    backend: parseErrorChecks(data, ['[5xx] ', '[BACKEND] ', '[API] ']),
+    business: parseErrorChecks(data, '[BUSINESS] '),
   };
 
   const mergedHtml = buildUserReportHtml(users, errorsData);
@@ -466,7 +621,7 @@ export function handleSummary(data, suite) {
   const files = {
     [htmlPath]: mergedHtml,
     [latestPath]: mergedHtml,
-    stdout: textSummary(data, { indent: ' ', enableColors: true }),
+    stdout: textSummary(data),
   };
 
   if (suite && suite.writePool && users.length > 0) {

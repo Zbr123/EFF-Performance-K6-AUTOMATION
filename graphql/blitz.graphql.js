@@ -1,15 +1,7 @@
 import { gql, httpOk, isSuccessCode } from '../core/http.client.js';
+import { payloadOk, responseField as field } from '../core/graphql.util.js';
 import { SUITE } from '../config/env.config.js';
 import { suiteHasScenario } from '../config/suites.config.js';
-
-function field(resp, key) {
-  return resp && resp.body ? resp.body[key] : null;
-}
-
-function payloadOk(resp, key, extra) {
-  const data = field(resp, key);
-  return httpOk(resp) && isSuccessCode(data) && (!extra || extra(data));
-}
 
 function selectableIds(rows, idKey) {
   const ids = [];
@@ -32,11 +24,11 @@ const Q_GET_PUBLIC_BLITZ_LEAGUES = `query GetPublicBlitzLeagues { getPublicBlitz
 const Q_JOIN_PRIVATE_BLITZ_LEAGUE = `mutation JoinPrivateBlitzLeague($Invite_Code: String!) { joinPrivateBlitzLeague(Invite_Code: $Invite_Code) { statusCode message League_ID } }`;
 const Q_JOIN_PUBLIC_BLITZ_LEAGUE = `mutation JoinPublicBlitzLeague($League_ID: ID!) { joinPublicBlitzLeague(League_ID: $League_ID) { statusCode message League_ID } }`;
 const Q_CREATE_BLITZ_LINEUP = `mutation CreateBlitzLineup($Team_ID: ID!) { createBlitzLineup(Team_ID: $Team_ID) { statusCode message Team_ID Week } }`;
-const Q_GET_NFL_PLAYERS_FOR_BLITZ_TEAM_BY_POSITION = `query GetNFLPlayersForBlitzTeamByPosition($Team_ID: ID!, $Position: PlayerPositionEnum!) { getNFLPlayersForBlitzTeamByPosition(Team_ID: $Team_ID, Position: $Position) { statusCode message players { Player_ID Eligibility { isSelectable flags } } } }`;
-const Q_GET_NFL_TEAMS_FOR_BLITZ_TEAM_BY_POSITION = `query GetNFLTeamsForBlitzTeamByPosition($Team_ID: ID!, $Position: TeamPositionEnum!) { getNFLTeamsForBlitzTeamByPosition(Team_ID: $Team_ID, Position: $Position) { statusCode message teams { Team_ID Eligibility { isSelectable flags } } } }`;
+const Q_GET_NFL_PLAYERS_FOR_BLITZ_TEAM_BY_POSITION = `query GetNFLPlayersForBlitzTeamByPosition($Team_ID: ID!, $Position: PlayerPositionEnum!) { getNFLPlayersForBlitzTeamByPosition(Team_ID: $Team_ID, Position: $Position) { statusCode message players { Player_ID Player_Details { FullName Status } Player_NFLTeam { Team_ID FullName } Eligibility { isSelectable flags } } } }`;
+const Q_GET_NFL_TEAMS_FOR_BLITZ_TEAM_BY_POSITION = `query GetNFLTeamsForBlitzTeamByPosition($Team_ID: ID!, $Position: TeamPositionEnum!) { getNFLTeamsForBlitzTeamByPosition(Team_ID: $Team_ID, Position: $Position) { statusCode message teams { Team_ID Team_Details { FullName ShortName } Eligibility { isSelectable flags } } } }`;
 const Q_UPDATE_BLITZ_LINEUP_BY_POSITION = `mutation UpdateBlitzLineupByPosition($Team_ID: ID!, $Position: LineupPositionEnum!, $Value_ID: ID!) { updateBlitzLineupByPosition(Team_ID: $Team_ID, Position: $Position, Value_ID: $Value_ID) { statusCode message Team_ID Week Position Value_ID } }`;
 const Q_GET_BLITZ_TEAMS = `query GetBlitzTeams { getBlitzTeams { statusCode teams { _id Team_Name League_ID Lineup_Status league_details { League_Name Game_Type League_Type Public Members isMine } Page_Context { Current_Week } } } }`;
-const Q_GET_CURRENT_WEEK_BLITZ_LINEUP = `query GetCurrentWeekBlitzLineup($Team_ID: ID!) { getCurrentWeekBlitzLineup(Team_ID: $Team_ID) { statusCode message Basic { Season Week seasonEnd Team_ID Team_Name Team_Image Total_Week_Points Total_Season_Points Rank League_ID league_details { League_Name Game_Type League_Type Public Members } Lineup_Status } Lineup { Players { Quarterback { LineupPosition Points } Running_Back1 { LineupPosition Points } Running_Back2 { LineupPosition Points } Wide_Receiver1 { LineupPosition Points } Wide_Receiver2 { LineupPosition Points } Tight_End { LineupPosition Points } } Teams { Kicker { LineupPosition Points } Offense { LineupPosition Points } Defense { LineupPosition Points } } } } }`;
+const Q_GET_CURRENT_WEEK_BLITZ_LINEUP = `query GetCurrentWeekBlitzLineup($Team_ID: ID!) { getCurrentWeekBlitzLineup(Team_ID: $Team_ID) { statusCode message Basic { Season Week seasonEnd Team_ID Team_Name Team_Image Total_Week_Points Total_Season_Points Rank League_ID league_details { League_Name Game_Type League_Type Public Members } Lineup_Status } Lineup { Players { Quarterback { LineupPosition Points Player_Details { FullName Status } Team { Team_ID FullName ShortName } } Running_Back1 { LineupPosition Points Player_Details { FullName Status } Team { Team_ID FullName ShortName } } Running_Back2 { LineupPosition Points Player_Details { FullName Status } Team { Team_ID FullName ShortName } } Wide_Receiver1 { LineupPosition Points Player_Details { FullName Status } Team { Team_ID FullName ShortName } } Wide_Receiver2 { LineupPosition Points Player_Details { FullName Status } Team { Team_ID FullName ShortName } } Tight_End { LineupPosition Points Player_Details { FullName Status } Team { Team_ID FullName ShortName } } } Teams { Kicker { LineupPosition Points Team_Details { FullName ShortName } } Offense { LineupPosition Points Team_Details { FullName ShortName } } Defense { LineupPosition Points Team_Details { FullName ShortName } } } } } }`;
 const Q_LEAGUE_DETAILS_FIELDS = `statusCode message details { League_ID View_Type hasTeam League_Details { League_Name Game_Type League_Type Public Members Invite_Code } Teams { Team_ID Team_Name Rank Total_Points Total_Wins Own_Team } }`;
 
 function leagueDetailsQuery(op) {
@@ -130,7 +122,10 @@ export function findBlitzLeagueByName(resp, leagueName) {
 }
 
 export function joinPrivateBlitzLeague(inviteCode, token, ctx) {
-  return gql(Q_JOIN_PRIVATE_BLITZ_LEAGUE, { Invite_Code: inviteCode }, token, 'joinPrivateBlitzLeague', ctx);
+  const options = suiteHasScenario(SUITE, 'joinPrivateBlitzLeague')
+    ? { expectedErrorCodes: ['LEAGUE_MEMBERSHIP_ALREADY_EXISTS'] }
+    : {};
+  return gql(Q_JOIN_PRIVATE_BLITZ_LEAGUE, { Invite_Code: inviteCode }, token, 'joinPrivateBlitzLeague', ctx, options);
 }
 
 export function joinPrivateBlitzLeagueOk(resp) {
@@ -145,11 +140,13 @@ export function getPublicBlitzLeaguesOk(resp) {
   return payloadOk(resp, 'getPublicBlitzLeagues', (d) => Array.isArray(d.leagues));
 }
 
-export function pickPublicBlitzLeague(leagues) {
+export function pickPublicBlitzLeague(leagues, targetLeagueId) {
   const rows = leagues || [];
+  const target = String(targetLeagueId || '');
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     if (!row || !row._id) continue;
+    if (target && String(row._id) !== target) continue;
     if (row.Public !== true && String(row.Public) !== 'true') continue;
     if (String(row.Game_Type || '').toUpperCase() !== 'EXTREME') continue;
     const week = Number(row.Game_Week);
@@ -172,26 +169,6 @@ export function joinPublicBlitzLeagueOk(resp) {
 
 export function publicJoinAlreadyMember(resp) {
   return !!(resp && resp.gqlErr && resp.gqlErr.errorCode === 'LEAGUE_MEMBERSHIP_ALREADY_EXISTS');
-}
-
-function firstInvite(leagues, leagueId) {
-  if (!leagues || !leagues.length) return '';
-  const want = leagueId ? String(leagueId) : '';
-  for (let i = 0; i < leagues.length; i++) {
-    if (want && String(leagues[i]._id) !== want) continue;
-    if (leagues[i].Invite_Code) return String(leagues[i].Invite_Code);
-  }
-  return '';
-}
-
-export function fetchBlitzInviteCode(leagueId, token, ctx) {
-  const one = getBlitzLeague(leagueId, token, ctx);
-  const oneData = field(one, 'getBlitzLeague');
-  const fromOne = firstInvite(oneData && oneData.leagues, leagueId);
-  if (fromOne) return fromOne;
-  const list = getBlitzLeagues(token, ctx);
-  const data = field(list, 'getBlitzLeagues');
-  return firstInvite(data && data.leagues, leagueId);
 }
 
 export function findBlitzLeagueByOwnerAndInvite(email, inviteCode, token, ctx) {

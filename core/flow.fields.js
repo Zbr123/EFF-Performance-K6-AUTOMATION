@@ -1,0 +1,105 @@
+export const FLOW_SUMMARY_FIELDS = [
+  { key: 'email', max: 70 },
+  { key: 'username', max: 30 },
+  { key: 'userId', max: 20 },
+  { key: 'blitzLeagueId', max: 20 },
+  { key: 'blitzLeagueName', max: 50 },
+  { key: 'blitzTeamId', max: 20 },
+  { key: 'blitzTeamName', max: 50 },
+  { key: 'blitzInviteCode', max: 20 },
+  { key: 'blitzJoinedLeagueId', max: 20 },
+  { key: 'blitzJoinedTeamId', max: 20 },
+  { key: 'blitzJoinedTeamName', max: 50 },
+  { key: 'blitzLineupWeek', max: 8 },
+  { key: 'blitzLeagueMembers', max: 12 },
+  { key: 'blitzLineupStatus', max: 40 },
+  { key: 'blitzLineupTotalWeekPoints', max: 20 },
+  { key: 'blitzLineupTotalSeasonPoints', max: 20 },
+  { key: 'blitzLineupRank', max: 12 },
+  { key: 'blitzLineupQB', max: 80 },
+  { key: 'blitzLineupRB1', max: 80 },
+  { key: 'blitzLineupRB2', max: 80 },
+  { key: 'blitzLineupWR1', max: 80 },
+  { key: 'blitzLineupWR2', max: 80 },
+  { key: 'blitzLineupTE', max: 80 },
+  { key: 'blitzLineupK', max: 80 },
+  { key: 'blitzLineupOFF', max: 80 },
+  { key: 'blitzLineupDEF', max: 80 },
+  { key: 'blitzDetailsView', max: 50 },
+  { key: 'blitzDetailsTeamCount', max: 12 },
+  { key: 'blitzDetailsTopTeam', max: 80 },
+  { key: 'blitzResultsTeamCount', max: 12 },
+  { key: 'blitzResultsLeader', max: 80 },
+  { key: 'blitzResultsOwnRank', max: 12 },
+  { key: 'blitzResultsOwnPoints', max: 20 },
+  { key: 'exchangeLeagueId', max: 20 },
+  { key: 'exchangeLeagueName', max: 50 },
+  { key: 'exchangeTeamId', max: 20 },
+  { key: 'exchangeTeamName', max: 50 },
+  { key: 'exchangeInviteCode', max: 20 },
+  { key: 'exchangeJoinedLeagueId', max: 20 },
+  { key: 'exchangeJoinedTeamId', max: 20 },
+  { key: 'exchangeJoinedTeamName', max: 50 },
+  { key: 'exchangePortfolioWeek', max: 8 },
+  { key: 'exchangePortfolioAssetCount', max: 12 },
+  { key: 'exchangePortfolioCash', max: 20 },
+  { key: 'exchangePortfolioAssetsValue', max: 20 },
+  { key: 'exchangePortfolioTotalValue', max: 20 },
+  { key: 'exchangePortfolioTransactionsUsed', max: 12 },
+  { key: 'exchangePortfolioTransactionsRemaining', max: 12 },
+  { key: 'exchangePortfolioTransactionLimit', max: 12 },
+  { key: 'exchangePortfolioPreseasonTransactions', max: 8 },
+  { key: 'exchangePortfolioTotalTransactions', max: 12 },
+  { key: 'exchangePortfolioLeagueId', max: 20 },
+  { key: 'exchangePortfolioBefore', max: 300 },
+  { key: 'exchangePortfolioAfter', max: 300 },
+  { key: 'exchangeBuyAssetId', max: 20 },
+  { key: 'exchangeBuyAssetType', max: 30 },
+  { key: 'exchangeBuyAssetPrice', max: 20 },
+  { key: 'exchangeBuyAssetDescription', max: 100 },
+  { key: 'exchangeBuyAssetCandidates', max: 12 },
+  { key: 'exchangeBuyResponseAssetId', max: 20 },
+  { key: 'exchangeBuyCompleted', max: 8 },
+  { key: 'exchangeSellAssetId', max: 20 },
+  { key: 'exchangeSellAssetType', max: 30 },
+  { key: 'exchangeSellAssetPosition', max: 10 },
+  { key: 'exchangeSellAssetPrice', max: 20 },
+  { key: 'exchangeSellAssetDescription', max: 100 },
+  { key: 'exchangeSellAssetCandidates', max: 12 },
+  { key: 'exchangeSellResponseAssetId', max: 20 },
+  { key: 'exchangeSellResponseAssetType', max: 30 },
+  { key: 'exchangeSellResponseTeamId', max: 20 },
+  { key: 'exchangeSellAttempted', max: 8 },
+  { key: 'exchangeSellRecovered', max: 8 },
+  { key: 'exchangeSellTransactionDecision', max: 32 },
+  { key: 'exchangeSellCompleted', max: 8 },
+  { key: 'exchangeSellVerification', max: 300 },
+  { key: 'exchangeDetailsLeagueMembers', max: 12 },
+  { key: 'exchangeDetailsTeamCount', max: 12 },
+  { key: 'exchangeDetailsTopTeam', max: 80 },
+  { key: 'exchangeDetailsOwnRank', max: 12 },
+  { key: 'exchangeTransactionsWeek', max: 8 },
+  { key: 'exchangeTransactionsAssetCount', max: 12 },
+  { key: 'exchangeTransactionsTotal', max: 12 },
+  { key: 'exchangeBuy2AssetDescription', max: 100 },
+  { key: 'exchangeBuy2Completed', max: 8 },
+  { key: 'exchangeTradeSummary', max: 300 },
+];
+
+export const FLOW_FIELDS = FLOW_SUMMARY_FIELDS
+  .map((field) => field.key)
+  .concat(['blitzPublicLeagueId', 'exchangeTargetLeagueId', 'exchangePublicLeagueId']);
+
+export function emptyFlowFields() {
+  const fields = {};
+  for (let i = 0; i < FLOW_FIELDS.length; i++) fields[FLOW_FIELDS[i]] = '';
+  return fields;
+}
+
+export function copyFlowFields(target, source) {
+  for (let i = 0; i < FLOW_FIELDS.length; i++) {
+    const key = FLOW_FIELDS[i];
+    const value = source[key];
+    if (value !== undefined && value !== null && value !== '') target[key] = value;
+  }
+}

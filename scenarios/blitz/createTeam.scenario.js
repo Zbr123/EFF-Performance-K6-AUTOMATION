@@ -1,5 +1,5 @@
 import { recordStep, stepPassed } from '../../core/flow.tracker.js';
-import { randomString } from '../../utils/random.util.js';
+import { requireData, requireToken, uniqueTestName } from '../../utils/flow.util.js';
 import {
   checkBlitzTeamName,
   checkBlitzTeamNameOk,
@@ -14,27 +14,17 @@ export const steps = [
   { key: 'createBlitzTeam', label: 'createBlitzTeam' },
 ];
 
-function makeTeamName() {
-  return `fw team ${Date.now()}${__VU}${__ITER}${randomString(3)}`.substring(0, 50);
-}
-
 export function run(ctx) {
   const flow = ctx.flow;
-  const token = ctx.data.token;
-  const leagueId = ctx.data.blitzLeagueId ? String(ctx.data.blitzLeagueId) : '';
+  const token = requireToken(ctx, 'createBlitzTeam');
+  const leagueId = requireData(
+    ctx,
+    'blitzLeagueId',
+    'createBlitzTeam',
+    'ctx.data.blitzLeagueId from createBlitzLeague, join, or the pool'
+  );
 
-  if (!token) {
-    throw new Error(
-      'Scenario "createBlitzTeam" needs ctx.data.token. Put login or signup before it in the suite.'
-    );
-  }
-  if (!leagueId) {
-    throw new Error('Scenario "createBlitzTeam" needs ctx.data.blitzLeagueId from createBlitzLeague, join, or the pool.');
-  }
-
-  const teamName = makeTeamName();
-  console.log(`[${flow.flowId}]     leagueId = ${leagueId}`);
-  console.log(`[${flow.flowId}]     team name = ${teamName}`);
+  const teamName = uniqueTestName('fw team');
 
   const checkResp = checkBlitzTeamName(leagueId, teamName, token, flow.flowId);
   const okCheck = stepPassed(checkResp, checkBlitzTeamNameOk(checkResp));
@@ -44,8 +34,18 @@ export function run(ctx) {
   const createResp = createBlitzTeam(leagueId, teamName, token, flow.flowId);
   const okCreate = stepPassed(createResp, createBlitzTeamOk(createResp));
   if (okCreate) {
-    ctx.data.blitzTeamId = String(createResp.body.createBlitzTeam.Team_ID);
-    ctx.data.blitzTeamName = teamName;
+    const teamId = String(createResp.body.createBlitzTeam.Team_ID);
+    const isJoinedLeague = !!(
+      ctx.data.blitzJoinedLeagueId &&
+      String(ctx.data.blitzJoinedLeagueId) === leagueId
+    );
+    if (isJoinedLeague) {
+      ctx.data.blitzJoinedTeamId = teamId;
+      ctx.data.blitzJoinedTeamName = teamName;
+    } else {
+      ctx.data.blitzTeamId = teamId;
+      ctx.data.blitzTeamName = teamName;
+    }
     ctx.data.blitzTeamCreated = true;
   }
   recordStep(flow, ctx.step('createBlitzTeam'), okCreate ? 'PASS' : 'FAIL', createResp);

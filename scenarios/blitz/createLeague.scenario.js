@@ -1,6 +1,6 @@
 import { recordStep, stepPassed } from '../../core/flow.tracker.js';
 import { isTransientWriteFail, recordExtraStep, markFailRecovered } from '../../core/write.recover.js';
-import { randomString } from '../../utils/random.util.js';
+import { requireToken, uniqueTestName } from '../../utils/flow.util.js';
 import {
   checkBlitzLeagueName,
   checkBlitzLeagueNameOk,
@@ -18,22 +18,11 @@ export const steps = [
   { key: 'createBlitzLeague', label: 'createBlitzLeague' },
 ];
 
-function makeLeagueName() {
-  return `fw blitz ${Date.now()}${__VU}${__ITER}${randomString(3)}`.substring(0, 50);
-}
-
 export function run(ctx) {
   const flow = ctx.flow;
-  const token = ctx.data.token;
+  const token = requireToken(ctx, 'createBlitzLeague');
 
-  if (!token) {
-    throw new Error(
-      'Scenario "createBlitzLeague" needs ctx.data.token. Put login or signup before it in the suite.'
-    );
-  }
-
-  const leagueName = makeLeagueName();
-  console.log(`[${flow.flowId}]     league name = ${leagueName}`);
+  const leagueName = uniqueTestName('fw blitz');
 
   const checkResp = checkBlitzLeagueName(leagueName, token, flow.flowId);
   const okCheck = stepPassed(checkResp, checkBlitzLeagueNameOk(checkResp));

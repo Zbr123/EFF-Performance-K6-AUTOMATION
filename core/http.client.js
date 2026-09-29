@@ -1,7 +1,7 @@
 import http from 'k6/http';
 import { check } from 'k6';
 import { GRAPHQL_URL, headers } from '../config/env.config.js';
-import { apiErrors, errorAtIteration, errorAtVu, serverErrors5xx } from './metrics.registry.js';
+import { backendErrors, errorAtIteration, errorAtVu, serverErrors5xx } from './metrics.registry.js';
 import { iterNum, safeTag, checkText } from '../utils/format.util.js';
 
 function recordBackendError(stepName, httpStatus, errorCode, message, is5xx) {
@@ -14,11 +14,11 @@ function recordBackendError(stepName, httpStatus, errorCode, message, is5xx) {
 
   const n = iterNum();
   if (is5xx) serverErrors5xx.add(1, tags);
-  apiErrors.add(1, tags);
-  errorAtIteration.add(n, { endpoint: tags.endpoint, kind: is5xx ? '5xx' : 'api' });
-  errorAtVu.add(__VU, { endpoint: tags.endpoint, kind: is5xx ? '5xx' : 'api' });
+  backendErrors.add(1, tags);
+  errorAtIteration.add(n, { endpoint: tags.endpoint, kind: 'api' });
+  errorAtVu.add(__VU, { endpoint: tags.endpoint, kind: 'api' });
 
-  const kind = is5xx ? '5xx' : 'API';
+  const kind = is5xx ? '5xx' : 'BACKEND';
   const detailCheck =
     `[${kind}] ${stepName} | status=${httpStatus} | code=${errorCode || 'UNKNOWN'} | VU=${__VU} | iter=${n} | ${checkText(message || '')}`;
   check(null, { [detailCheck]: () => false });
@@ -29,7 +29,7 @@ function recordBackendError(stepName, httpStatus, errorCode, message, is5xx) {
   );
 }
 
-export function extractGraphqlError(errors) {
+function extractGraphqlError(errors) {
   if (!errors || !errors.length) return null;
   const e = errors[0];
   const info = e.errorInfo || {};
